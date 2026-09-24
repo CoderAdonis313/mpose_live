@@ -10,10 +10,10 @@ def generate_launch_description():
             output="screen",
             parameters=[{"use_sim_time": False}],
         ),
-        Node(
-            package="mpose_live",
-            executable="gt_error_node",
-            output="screen",
-            parameters=[{"use_sim_time": False}],
-        ),
+        # Node(
+        #     package="mpose_live",
+        #     executable="gt_error_node",
+        #     output="screen",
+        #     parameters=[{"use_sim_time": False}],
+        # ),
     ])
