@@ -28,6 +28,7 @@ setup(
         "console_scripts": [
             "mpose_bridge_node = mpose_live.mpose_bridge_node:main",
             "gt_error_node = mpose_live.gt_error_node:main",
+            "controller_node = mpose_live.controller_node:main",
         ],
     },
 )
