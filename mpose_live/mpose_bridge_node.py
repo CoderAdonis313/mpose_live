@@ -12,17 +12,7 @@ from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from geometry_msgs.msg import PoseStamped
 from rclpy.node import Node
 from scipy.spatial.transform import Rotation
-
-
-STATUSES = {
-    "STARTING",
-    "TRACKING",
-    "NO_TARGET",
-    "NO_POSE",
-    "RESET",
-    "ERROR",
-    "STOPPED",
-}
+from mpose_live.utils import PacketGate
 
 
 def set_stamp(header, ns, frame):
@@ -30,29 +20,12 @@ def set_stamp(header, ns, frame):
     header.frame_id = frame
 
 
-def checked_transform(value):
-    matrix = np.asarray(value, dtype=float)
-
-    if matrix.shape != (4, 4) or not np.isfinite(matrix).all():
-        raise ValueError("Expected a finite 4x4 transform")
-
-    rot = matrix[:3, :3]
-    if (
-        not np.allclose(matrix[3], [0, 0, 0, 1], atol=1e-6)
-        or not np.allclose(rot.T @ rot, np.eye(3), atol=1e-3)
-        or not np.isclose(np.linalg.det(rot), 1.0, atol=1e-3)
-    ):
-        raise ValueError("Invalid rigid transform")
-
-    return matrix
-
-
 def pose_message(matrix, ns, frame):
     msg = PoseStamped()
     set_stamp(msg.header, ns, frame)
 
     p = matrix[:3, 3]
-    q = Rotation.from_matrix(matrix[:3, :3]).as_quat()
+    q = Rotation.from_matrix(matrix[:3, :3]).as_quat() #type: ignore
 
     msg.pose.position.x, msg.pose.position.y, msg.pose.position.z = map(float, p)
     (
@@ -88,120 +61,18 @@ def positive(node, name, default):
     return value
 
 
-class PacketGate:
-    """Validate packets before updating ordering state."""
 
-    def __init__(self, frame, object_id):
-        self.frame = frame
-        self.object_id = object_id
-        self.session = None
-        self.seq = -1
-        self.result_ns = 0
-        self.image_ns = 0
-
-    def accept(self, data, now_ns, packet_age_ns):
-        p = json.loads(data)
-
-        if not isinstance(p, dict) or type(p.get("schema_version")) is not int:
-            raise ValueError("Missing packet schema")
-
-        if p["schema_version"] != 1:
-            raise ValueError("Unsupported packet schema")
-
-        if (
-            p.get("frame_id") != self.frame
-            or p.get("object_id") != self.object_id
-            or p.get("timestamp_source") != "host_read"
-        ):
-            raise ValueError("Unexpected frame, object, or timestamp source")
-
-        session = p.get("session_id")
-        seq = p.get("packet_seq")
-        result_ns = p.get("result_time_ns")
-        state = p.get("status")
-
-        if not isinstance(session, str) or not session:
-            raise ValueError("Missing session_id")
-
-        if type(seq) is not int or seq < 0 or type(result_ns) is not int:
-            raise ValueError("Invalid sequence or result timestamp")
-
-        if not isinstance(state, str) or state not in STATUSES:
-            raise ValueError("Unknown sender status")
-
-        if type(p.get("valid")) is not bool or p["valid"] != (state == "TRACKING"):
-            raise ValueError("Inconsistent validity flag")
-
-        if (
-            result_ns <= 0
-            or result_ns > now_ns + 50_000_000
-            or now_ns - result_ns > packet_age_ns
-        ):
-            raise ValueError("Old packet or incompatible clock")
-
-        same_session = session == self.session
-        if (
-            (same_session and seq <= self.seq)
-            or result_ns < self.result_ns
-            or (not same_session and result_ns <= self.result_ns)
-        ):
-            raise ValueError("Duplicate or out-of-order packet")
-
-        matrix = None
-
-        if state in {"TRACKING", "NO_TARGET", "NO_POSE"}:
-            image_ns = p.get("image_time_ns")
-            index = p.get("frame_index")
-
-            if (
-                type(image_ns) is not int
-                or image_ns <= 0
-                or image_ns > result_ns
-                or type(index) is not int
-                or index < 0
-            ):
-                raise ValueError("Invalid source frame timestamp or index")
-
-            if same_session and image_ns <= self.image_ns:
-                raise ValueError("Non-increasing image timestamp")
-
-        elif (
-            p.get("image_time_ns") is not None
-            or p.get("frame_index") is not None
-        ):
-            raise ValueError("Non-frame status must not contain an image timestamp")
-
-        if p["valid"]:
-            matrix = checked_transform(p.get("T_camera_object"))
-            if matrix[2, 3] <= 0:
-                raise ValueError("Object is behind camera")
-        elif p.get("T_camera_object") is not None:
-            raise ValueError("Invalid result contains a pose")
-
-        self.session = session
-        self.seq = seq
-        self.result_ns = result_ns
-
-        if not same_session:
-            self.image_ns = 0
-
-        if state in {"TRACKING", "NO_TARGET", "NO_POSE"}:
-            self.image_ns = p["image_time_ns"]
-
-        return p, matrix
-
-
-class UDPBridgeNode(Node):
+class MPoseBridgeNode(Node):
     def __init__(self):
         super().__init__("mpose_bridge_node")
 
         if self.get_parameter("use_sim_time").value:
             raise ValueError("Host timestamp packets require use_sim_time=false")
 
-        frame = self.declare_parameter(
-            "camera_frame", "zed_left_camera_optical_frame"
-        ).value
+        frame = self.declare_parameter("camera_frame", "zed_left_camera_optical_frame").value
         object_id = self.declare_parameter("object_id", "fiducial").value
+        mpose_pose_topic = self.declare_parameter('mpose_pose_topic', "").value
+        mpose_status_topic = self.declare_parameter('mpose_status_topic', "").value
         port = self.declare_parameter("udp_port", 5005).value
 
         if type(port) is not int or not 1 <= port <= 65535:
@@ -211,12 +82,8 @@ class UDPBridgeNode(Node):
         self.max_age_ns = int(positive(self, "max_pose_age_s", 5.0) * 1e9)
         self.gate = PacketGate(frame, object_id)
 
-        self.pose_pub = self.create_publisher(
-            PoseStamped, "/megapose/object_pose", 100
-        )
-        self.status_pub = self.create_publisher(
-            DiagnosticArray, "/megapose/status", 10
-        )
+        self.pose_pub = self.create_publisher(msg_type=PoseStamped, topic=mpose_pose_topic, qos_profile=100)  #type: ignore
+        self.status_pub = self.create_publisher(msg_type=DiagnosticArray, topic=mpose_status_topic, qos_profile=10)   #type: ignore
 
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
@@ -235,6 +102,7 @@ class UDPBridgeNode(Node):
         self.create_timer(0.2, self.watchdog)
 
         self.get_logger().info(f"Listening on 127.0.0.1:{port}")
+
 
     def receive(self):
         # Bound work so other callbacks can run.
@@ -272,18 +140,20 @@ class UDPBridgeNode(Node):
 
             self.publish_status()
 
+
     def watchdog(self):
         if self.last_receive is not None:
             if time.monotonic() - self.last_receive > self.timeout:
                 self.state = "STREAM_TIMEOUT"
             elif (
                 self.state == "TRACKING"
-                and time.time_ns() - self.last_packet["image_time_ns"]
+                and time.time_ns() - self.last_packet["image_time_ns"] #type: ignore
                 > self.max_age_ns
             ):
                 self.state = "STALE_POSE"
 
         self.publish_status()
+
 
     def publish_status(self):
         packet = self.last_packet or {}
@@ -312,7 +182,7 @@ def main(args=None):
     node = None
 
     try:
-        node = UDPBridgeNode()
+        node = MPoseBridgeNode()
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass

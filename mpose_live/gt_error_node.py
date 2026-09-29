@@ -78,7 +78,7 @@ def pose_message(matrix, ns, frame):
     set_stamp(msg.header, ns, frame)
 
     p = matrix[:3, 3]
-    q = Rotation.from_matrix(matrix[:3, :3]).as_quat()
+    q = Rotation.from_matrix(matrix[:3, :3]).as_quat()  #type: ignore
 
     msg.pose.position.x, msg.pose.position.y, msg.pose.position.z = map(float, p)
     (
@@ -175,11 +175,16 @@ class GTErrorNode(Node):
         if self.get_parameter("use_sim_time").value:
             raise ValueError("Live host timestamps require use_sim_time=false")
 
-        self.frame = self.declare_parameter(
-            "camera_frame", "zed_left_camera_optical_frame"
-        ).value
+        self.frame = self.declare_parameter("camera_frame", "zed_left_camera_optical_frame").value
         self.ready = self.declare_parameter("evaluation_enabled", True).value
         self.preliminary = self.declare_parameter("preliminary", True).value
+        bot_topic = self.declare_parameter('robot_vicon_topic', "").value
+        cam_topic = self.declare_parameter('cam_vicon_topic', "").value
+        mpose_pose_topic = self.declare_parameter('mpose_pose_topic', "").value
+        gt_pose_topic = self.declare_parameter('gt_pose_topic', "").value
+        mpose_error_topic = self.declare_parameter('mpose_error_topic', "").value
+        mpose_terror_topic = self.declare_parameter('mpose_terror_topic', "").value
+
 
         self.T_vc_c = checked_transform(
             np.array(
@@ -203,7 +208,7 @@ class GTErrorNode(Node):
         self.wait_s = positive(self, "sync_wait_s", 1.0)
 
         self.history = {
-            name: PoseHistory(history_ns) for name in ("camera", "marker")
+            name: PoseHistory(history_ns) for name in ("robot", "cam")
         }
         self.frames = {}
         self.frame_fault = False
@@ -213,43 +218,28 @@ class GTErrorNode(Node):
         self.matched = 0
         self.missed = 0
 
-        self.gt_pub = self.create_publisher(
-            PoseStamped, "/ground_truth/object_pose", 100
-        )
-        self.error_pub = self.create_publisher(
-            DiagnosticArray, "/megapose/errors", 10
-        )
-        self.delta_pub = self.create_publisher(
-            Vector3Stamped, "/megapose/translation_error", 10
-        )
+        self.gt_pub = self.create_publisher(msg_type=PoseStamped, topic=gt_pose_topic, qos_profile=100)  #type: ignore
+        self.error_pub = self.create_publisher(msg_type=DiagnosticArray, topic=mpose_error_topic, qos_profile=10)   #type: ignore
+        self.delta_pub = self.create_publisher(msg_type=Vector3Stamped, topic=mpose_terror_topic, qos_profile=10)    #type: ignore
 
         qos = QoSProfile(
             depth=1000,
             reliability=ReliabilityPolicy.BEST_EFFORT,
         )
 
-        for name, parameter, default in [
-            ("camera", "camera_vicon_topic", "/vicon/ZED_CAM/ZED_CAM"),
-            (
-                "marker",
-                "marker_vicon_topic",
-                "/vicon/MARKER_YFORWARD/MARKER_YFORWARD",
-            ),
-        ]:
-            topic = self.declare_parameter(parameter, default).value
-            self.create_subscription(
-                TransformStamped,
-                topic,
-                lambda msg, key=name: self.on_vicon(key, msg),
-                qos,
-            )
-
         self.create_subscription(
-            PoseStamped,
-            "/megapose/object_pose",
-            self.on_estimate,
-            100,
-        )
+            msg_type=PoseStamped,
+            topic=bot_topic,   #type: ignore
+            callback=lambda msg: self.on_vicon("robot", msg),
+            qos_profile=qos)
+        
+        self.create_subscription(
+            msg_type=PoseStamped,
+            topic=cam_topic,   #type: ignore
+            callback=lambda msg: self.on_vicon("cam", msg),
+            qos_profile=qos)
+        
+        self.create_subscription(msg_type=PoseStamped, topic=mpose_pose_topic, callback=self.on_estimate, qos_profile=100)    #type: ignore
 
         self.create_timer(0.02, self.process)
         self.create_timer(1.0, self.idle_status)
@@ -259,6 +249,7 @@ class GTErrorNode(Node):
                 "Using metrics_postprocess.py frame assumptions; "
                 "errors are preliminary."
             )
+
 
     def report(self, state, ns=None, **values):
         diagnostic(
@@ -275,6 +266,7 @@ class GTErrorNode(Node):
             **values,
         )
 
+
     def idle_status(self):
         if not self.ready:
             self.report("EVALUATION_DISABLED")
@@ -286,37 +278,38 @@ class GTErrorNode(Node):
         ):
             self.report("WAITING_FOR_ESTIMATE")
 
+
     def on_vicon(self, name, msg):
         ns = stamp_ns(msg.header.stamp)
-        pair = (msg.header.frame_id, msg.child_frame_id)
+        frame = msg.header.frame_id
 
-        if ns <= 0 or not all(pair) or self.frame_fault:
+        if ns <= 0 or not frame or self.frame_fault:
             return
 
-        if name in self.frames and self.frames[name] != pair:
+        if name in self.frames and self.frames[name] != frame:
             self.frame_fault = True
             self.report("VICON_FRAME_MISMATCH")
             return
 
         try:
             matrix = from_pose(
-                msg.transform.translation,
-                msg.transform.rotation,
+                msg.pose.position,
+                msg.pose.orientation,
             )
         except ValueError:
             return
 
-        self.frames[name] = pair
+        self.frames[name] = frame
 
         if (
             len(self.frames) == 2
-            and self.frames["camera"][0] != self.frames["marker"][0]
+            and self.frames["cam"] != self.frames["robot"]
         ):
             self.frame_fault = True
             self.report("VICON_FRAME_MISMATCH")
             return
-
         self.history[name].add(ns, matrix)
+
 
     def on_estimate(self, msg):
         self.last_estimate = time.monotonic()
@@ -341,6 +334,7 @@ class GTErrorNode(Node):
 
         self.pending.append((ns, matrix, time.monotonic()))
 
+
     def process(self):
         if self.frame_fault:
             self.pending.clear()
@@ -350,8 +344,8 @@ class GTErrorNode(Node):
             ns, estimate, received = self.pending[0]
 
             try:
-                camera = self.history["camera"].at(ns, self.gap_ns)
-                marker = self.history["marker"].at(ns, self.gap_ns)
+                camera = self.history["cam"].at(ns, self.gap_ns)
+                marker = self.history["robot"].at(ns, self.gap_ns)
             except LookupError as error:
                 if time.monotonic() - received < self.wait_s:
                     break

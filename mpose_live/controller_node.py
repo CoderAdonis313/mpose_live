@@ -122,37 +122,13 @@ class TurtleBotControllerNode(Node):
             self.declare_parameter("angular_velocity_sign", -1.0).value
         )
 
-        pose_topic = self.declare_parameter(
-            "pose_topic",
-            "/megapose/object_pose",
-        ).value
-        status_topic = self.declare_parameter(
-            "status_topic",
-            "/megapose/status",
-        ).value
-        cmd_vel_topic = self.declare_parameter(
-            "cmd_vel_topic",
-            "/cmd_vel",
-        ).value
+        mpose_pose_topic = self.declare_parameter("mpose_pose_topic", "").value
+        mpose_status_topic = self.declare_parameter("mpose_status_topic", "").value
+        cmd_vel_topic = self.declare_parameter("cmd_vel_topic", "/cmd_vel").value
 
-        self.cmd_vel_pub = self.create_publisher(
-            Twist,
-            cmd_vel_topic,
-            10,
-        )
-
-        self.create_subscription(
-            PoseStamped,
-            pose_topic,
-            self.on_pose,
-            10,
-        )
-        self.create_subscription(
-            DiagnosticArray,
-            status_topic,
-            self.on_status,
-            10,
-        )
+        self.cmd_vel_pub = self.create_publisher(msg_type=Twist, topic=cmd_vel_topic, qos_profile=10) #type: ignore
+        self.create_subscription(msg_type=PoseStamped, topic=mpose_pose_topic, callback=self.on_pose, qos_profile=10) #type: ignore
+        self.create_subscription(msg_type=DiagnosticArray, topic=mpose_status_topic, callback=self.on_status, qos_profile=10) #type: ignore
 
         self.pose = None
         self.pose_received_at = None
@@ -166,6 +142,7 @@ class TurtleBotControllerNode(Node):
         self.get_logger().info(
             f"Loaded {len(self.waypoints)} camera x-z waypoints"
         )
+
 
     def on_pose(self, msg):
         values = (
@@ -200,6 +177,7 @@ class TurtleBotControllerNode(Node):
         self.pose = msg
         self.pose_received_at = time.monotonic()
 
+
     def on_status(self, msg):
         states = [
             status.message
@@ -214,6 +192,7 @@ class TurtleBotControllerNode(Node):
 
         if not self.tracking:
             self.stop(f"tracking state is {states[-1]}")
+
 
     def pose_is_fresh(self):
         if self.pose is None or self.pose_received_at is None:
@@ -237,6 +216,7 @@ class TurtleBotControllerNode(Node):
 
         return True, None
 
+
     def stop(self, reason=None):
         self.cmd_vel_pub.publish(Twist())
 
@@ -244,6 +224,7 @@ class TurtleBotControllerNode(Node):
             self.get_logger().warning(f"Stopping: {reason}")
 
         self.last_stop_reason = reason
+
 
     def control(self):
         if self.waypoint_index >= len(self.waypoints):
