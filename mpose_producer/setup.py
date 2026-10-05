@@ -1,5 +1,4 @@
 from glob import glob
-
 from setuptools import find_packages, setup
 
 package_name = "mpose_producer"
@@ -24,7 +23,7 @@ setup(
     license="TODO: License declaration",
     entry_points={
         "console_scripts": [
-            "mpose_bridge_node = mpose_live.mpose_bridge_node:main",
+            f"mpose_bridge_node = {package_name}.mpose_bridge_node:main",
         ],
     },
 )

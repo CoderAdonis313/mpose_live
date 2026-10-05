@@ -13,7 +13,7 @@ def generate_launch_description():
     cmd_vel_topic = '/cmd_vel'
 
     gt_node = Node(
-        package="mpose_live",
+        package="mpose_consumer",
         executable="gt_error_node",
         output="screen",
         parameters=[{
@@ -29,7 +29,7 @@ def generate_launch_description():
     )
 
     controller_node = Node(
-        package="mpose_live",
+        package="mpose_consumer",
         executable="controller_node",
         output="screen",
         parameters=[{

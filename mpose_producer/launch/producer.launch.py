@@ -14,7 +14,7 @@ def generate_launch_description():
 
 
     bridge_node = Node(
-        package="mpose_live",
+        package="mpose_producer",
         executable="mpose_bridge_node",
         output="screen",
         parameters=[{

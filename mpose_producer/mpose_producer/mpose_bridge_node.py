@@ -1,180 +1,303 @@
 #!/usr/bin/env python3
-"""Receive MegaPose UDP packets and publish ROS poses and stream status."""
+"""Relay multi-marker MegaPose UDP packets into ROS 2."""
 
 import json
-import math
+import re
 import socket
-import time
 
 import numpy as np
 import rclpy
-from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from geometry_msgs.msg import PoseStamped
 from rclpy.node import Node
 from scipy.spatial.transform import Rotation
-from mpose_producer.utils import PacketGate
+from std_msgs.msg import String
 
 
-def set_stamp(header, ns, frame):
-    header.stamp.sec, header.stamp.nanosec = divmod(int(ns), 1_000_000_000)
-    header.frame_id = frame
+def set_stamp(header, timestamp_ns, frame_id):
+    seconds, nanoseconds = divmod(
+        int(timestamp_ns),
+        1_000_000_000,
+    )
+
+    header.stamp.sec = seconds
+    header.stamp.nanosec = nanoseconds
+    header.frame_id = frame_id
 
 
-def pose_message(matrix, ns, frame):
-    msg = PoseStamped()
-    set_stamp(msg.header, ns, frame)
+def matrix_to_pose_message(matrix_value, timestamp_ns, frame_id):
+    matrix = np.asarray(
+        matrix_value,
+        dtype=float,
+    )
 
-    p = matrix[:3, 3]
-    q = Rotation.from_matrix(matrix[:3, :3]).as_quat() #type: ignore
+    if matrix.shape != (4, 4) or not np.isfinite(matrix).all():
+        raise ValueError("Expected a finite 4x4 matrix")
 
-    msg.pose.position.x, msg.pose.position.y, msg.pose.position.z = map(float, p)
+    rotation = matrix[:3, :3]
+
+    # These checks prevent scipy from silently correcting an
+    # invalid rotation before it reaches the consumer.
+    if not np.allclose(
+        matrix[3],
+        [0.0, 0.0, 0.0, 1.0],
+        atol=1e-5,
+    ):
+        raise ValueError("Invalid homogeneous transform")
+
+    if not np.allclose(
+        rotation.T @ rotation,
+        np.eye(3),
+        atol=1e-3,
+    ):
+        raise ValueError("Rotation is not orthonormal")
+
+    if not np.isclose(
+        np.linalg.det(rotation),
+        1.0,
+        atol=1e-3,
+    ):
+        raise ValueError("Rotation determinant is not one")
+
+    quaternion = Rotation.from_matrix(rotation).as_quat() #type: ignore
+    message = PoseStamped()
+
+    set_stamp(
+        message.header,
+        timestamp_ns,
+        frame_id,
+    )
+
     (
-        msg.pose.orientation.x,
-        msg.pose.orientation.y,
-        msg.pose.orientation.z,
-        msg.pose.orientation.w,
-    ) = map(float, q)
+        message.pose.position.x,
+        message.pose.position.y,
+        message.pose.position.z,
+    ) = map(
+        float,
+        matrix[:3, 3],
+    )
 
-    return msg
-
-
-def diagnostic(pub, name, message, level, ns, **values):
-    msg = DiagnosticArray()
-    set_stamp(msg.header, ns, "")
-
-    status = DiagnosticStatus()
-    status.name = name
-    status.message = message
-    status.level = level
-    status.values = [
-        KeyValue(key=str(k), value=str(v)) for k, v in values.items()
-    ]
-
-    msg.status = [status]
-    pub.publish(msg)
-
-
-def positive(node, name, default):
-    value = float(node.declare_parameter(name, default).value)
-    if not math.isfinite(value) or value <= 0:
-        raise ValueError(f"{name} must be finite and positive")
-    return value
-
+    (
+        message.pose.orientation.x,
+        message.pose.orientation.y,
+        message.pose.orientation.z,
+        message.pose.orientation.w,
+    ) = map(
+        float,
+        quaternion,
+    )
+    return message
 
 
 class MPoseBridgeNode(Node):
     def __init__(self):
         super().__init__("mpose_bridge_node")
 
-        if self.get_parameter("use_sim_time").value:
-            raise ValueError("Host timestamp packets require use_sim_time=false")
+        udp_port = int(self.declare_parameter("udp_port", 5005).value)  #type: ignore
+        self.pose_topic_prefix = str(self.declare_parameter("pose_topic_prefix", "/mpose/poses").value).rstrip("/")
+        packet_topic = str(self.declare_parameter("packet_topic", "/mpose/packets").value)
+        self.max_packets_per_tick = int(self.declare_parameter("max_packets_per_tick", 100).value)  #type: ignore
 
-        frame = self.declare_parameter("camera_frame", "zed_left_camera_optical_frame").value
-        object_id = self.declare_parameter("object_id", "fiducial").value
-        mpose_pose_topic = self.declare_parameter('mpose_pose_topic', "").value
-        mpose_status_topic = self.declare_parameter('mpose_status_topic', "").value
-        port = self.declare_parameter("udp_port", 5005).value
+        if type(udp_port) is not int or not 1 <= udp_port <= 65_535:
+            raise ValueError("udp_port must be between " "1 and 65535")
 
-        if type(port) is not int or not 1 <= port <= 65535:
-            raise ValueError("Invalid UDP port")
+        if type(self.max_packets_per_tick) is not int or self.max_packets_per_tick <= 0:
+            raise ValueError("max_packets_per_tick must " "be positive")
 
-        self.timeout = positive(self, "stream_timeout_s", 2.0)
-        self.max_age_ns = int(positive(self, "max_pose_age_s", 5.0) * 1e9)
-        self.gate = PacketGate(frame, object_id)
+        if not self.pose_topic_prefix:
+            raise ValueError("pose_topic_prefix cannot be empty")
 
-        self.pose_pub = self.create_publisher(msg_type=PoseStamped, topic=mpose_pose_topic, qos_profile=100)  #type: ignore
-        self.status_pub = self.create_publisher(msg_type=DiagnosticArray, topic=mpose_status_topic, qos_profile=10)   #type: ignore
+        # The original packet is sent to the consumer so it
+        # can perform all comprehensive validation.
+        self.packet_publisher = self.create_publisher(
+            String,
+            packet_topic,
+            100,
+        )
 
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        # label -> PoseStamped publisher
+        self.marker_publishers = {}
+
+        # label -> source identity
+        #
+        # MegaPose sends the same completed result repeatedly
+        # as a heartbeat. This prevents publishing the same
+        # source-frame pose repeatedly.
+        self.last_published_source = {}
+
+        self.rejected_pose_messages = 0
+        self.received_packets = 0
+
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM,)
+
         try:
-            self.sock.bind(("127.0.0.1", port))
-            self.sock.setblocking(False)
+            self.socket.bind(("127.0.0.1", udp_port))
+            self.socket.setblocking(False)
+
         except Exception:
-            self.sock.close()
+            self.socket.close()
             raise
 
-        self.last_receive = None
-        self.last_packet = None
-        self.state = "WAITING"
-        self.rejected = 0
+        self.receive_timer = self.create_timer(
+            0.01,
+            self.receive_packets,
+        )
 
-        self.create_timer(0.01, self.receive)
-        self.create_timer(0.2, self.watchdog)
+        self.get_logger().info(f"Listening on " f"127.0.0.1:{udp_port}")
+        self.get_logger().info(f"Raw packets: {packet_topic}")
+        self.get_logger().info(f"Marker topics: " f"{self.pose_topic_prefix}/<label>")
 
-        self.get_logger().info(f"Listening on 127.0.0.1:{port}")
+
+    def publisher_for_marker(self, label):
+        publisher = self.marker_publishers.get(label)
+
+        if publisher is not None:
+            return publisher
+
+        topic = f"{self.pose_topic_prefix}/{label}"
+        publisher = self.create_publisher(
+            PoseStamped,
+            topic,
+            10,
+        )
+
+        self.marker_publishers[label] = publisher
+        self.get_logger().info(f"Created marker publisher: " f"{label!r} -> {topic}")
+        return publisher
 
 
-    def receive(self):
-        # Bound work so other callbacks can run.
-        for _ in range(100):
+    def publish_raw_packet(self, packet_text):
+        message = String()
+        message.data = packet_text
+        self.packet_publisher.publish(message)
+
+
+    def process_for_pose_topics(self, packet):
+        """Extract valid marker poses using minimal checks."""
+
+        if not isinstance(packet, dict):
+            return
+
+        if packet.get("schema_version") != 1:
+            return
+
+        poses = packet.get("poses")
+
+        if not isinstance(poses, dict):
+            return
+
+        frame_id = packet.get("frame_id")
+        image_time_ns = packet.get("image_time_ns")
+
+        if (
+            not isinstance(frame_id, str)
+            or not frame_id
+            or type(image_time_ns) is not int
+            or image_time_ns <= 0
+        ):
+            return
+
+        session_id = packet.get("session_id")
+
+        frame_index = packet.get("frame_index")
+
+        # These fields identify one inference result. They are
+        # only used to avoid repeatedly publishing a heartbeat.
+        source_key = (
+            session_id,
+            frame_index,
+            image_time_ns,
+        )
+
+        packet_valid = packet.get("valid") is True
+
+        for label, pose_data in poses.items():
+            # A marker label becomes part of a ROS topic name.
+            if not isinstance(label, str):
+                self.rejected_pose_messages += 1
+                continue
+
+            # Create the publisher for every safe marker label
+            # received, even if this particular pose is stale.
+            publisher = self.publisher_for_marker(label)
+
+            if (
+                not packet_valid
+                or not isinstance(
+                    pose_data,
+                    dict,
+                )
+                or pose_data.get("valid") is not True
+            ):
+                continue
+
+            if self.last_published_source.get(label) == source_key:
+                continue
+
             try:
-                data, _ = self.sock.recvfrom(65535)
+                message = matrix_to_pose_message(
+                    pose_data.get("T_camera_object"),
+                    image_time_ns,
+                    frame_id,
+                )
+
+            except (
+                TypeError,
+                ValueError,
+            ) as error:
+                self.rejected_pose_messages += 1
+
+                if self.rejected_pose_messages % 100 == 1:
+                    self.get_logger().warning(
+                        f"Rejected pose for " f"{label!r}: {error}"
+                    )
+
+                continue
+
+            publisher.publish(message)
+            self.last_published_source[label] = source_key
+
+
+    def receive_packets(self):
+        """Drain queued UDP packets without blocking ROS."""
+
+        for _ in range(self.max_packets_per_tick):
+            try:
+                raw_data, _ = self.socket.recvfrom(65_535)
+
             except BlockingIOError:
                 break
 
+            except OSError as error:
+                self.get_logger().error(f"UDP receive failed: {error}")
+                return
+
             try:
-                packet, matrix = self.gate.accept(
-                    data, time.time_ns(), int(self.timeout * 1e9)
-                )
-            except (ValueError, TypeError, OverflowError, RecursionError) as error:
-                self.rejected += 1
-                if self.rejected % 100 == 1:
-                    self.get_logger().warning(f"Rejected UDP packet: {error}")
+                packet_text = raw_data.decode("utf-8")
+
+            except UnicodeDecodeError:
+                self.rejected_pose_messages += 1
                 continue
 
-            self.last_receive = time.monotonic()
-            self.last_packet = packet
-            self.state = packet["status"]
+            # Forward the original packet unchanged. The
+            # consumer performs comprehensive validation.
+            self.publish_raw_packet(packet_text)
 
-            if matrix is not None:
-                if time.time_ns() - packet["image_time_ns"] > self.max_age_ns:
-                    self.state = "STALE_POSE"
-                else:
-                    self.pose_pub.publish(
-                        pose_message(
-                            matrix,
-                            packet["image_time_ns"],
-                            self.gate.frame,
-                        )
-                    )
+            self.received_packets += 1
 
-            self.publish_status()
+            # Parsing here is only for creating per-marker
+            # PoseStamped topics.
+            try:
+                packet = json.loads(packet_text)
+            except ValueError:
+                self.rejected_pose_messages += 1
+                continue
+
+            self.process_for_pose_topics(packet)
 
 
-    def watchdog(self):
-        if self.last_receive is not None:
-            if time.monotonic() - self.last_receive > self.timeout:
-                self.state = "STREAM_TIMEOUT"
-            elif (
-                self.state == "TRACKING"
-                and time.time_ns() - self.last_packet["image_time_ns"] #type: ignore
-                > self.max_age_ns
-            ):
-                self.state = "STALE_POSE"
-
-        self.publish_status()
-
-
-    def publish_status(self):
-        packet = self.last_packet or {}
-        image_ns = packet.get("image_time_ns")
-        age = (time.time_ns() - image_ns) / 1e9 if image_ns else None
-
-        diagnostic(
-            self.status_pub,
-            "megapose_stream",
-            self.state,
-            DiagnosticStatus.OK
-            if self.state == "TRACKING"
-            else DiagnosticStatus.WARN,
-            time.time_ns(),
-            valid=self.state == "TRACKING",
-            session_id=self.gate.session,
-            packet_seq=self.gate.seq,
-            image_time_ns=image_ns,
-            pose_age_s=age,
-            rejected_packets=self.rejected,
-        )
+    def close(self):
+        self.receive_timer.cancel()
+        self.socket.close()
 
 
 def main(args=None):
@@ -184,12 +307,15 @@ def main(args=None):
     try:
         node = MPoseBridgeNode()
         rclpy.spin(node)
+
     except KeyboardInterrupt:
         pass
+
     finally:
         if node is not None:
-            node.sock.close()
+            node.close()
             node.destroy_node()
+
         if rclpy.ok():
             rclpy.shutdown()
 

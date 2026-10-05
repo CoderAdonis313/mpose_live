@@ -1,6 +1,5 @@
-from glob import glob
-
 from setuptools import find_packages, setup
+from glob import glob
 
 package_name = "mpose_consumer"
 
@@ -24,8 +23,8 @@ setup(
     license="TODO: License declaration",
     entry_points={
         "console_scripts": [
-            "gt_error_node = mpose_live.gt_error_node:main",
-            "controller_node = mpose_live.controller_node:main",
+            f"gt_error_node = {package_name}.gt_error_node:main",
+            f"controller_node = {package_name}.controller_node:main",
         ],
     },
 )
