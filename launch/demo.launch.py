@@ -57,5 +57,5 @@ def generate_launch_description():
     return LaunchDescription([
         bridge_node,
         # controller_node,
-        gt_node
+        # gt_node
     ])

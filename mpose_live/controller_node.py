@@ -69,19 +69,16 @@ class TurtleBotControllerNode(Node):
     def __init__(self):
         super().__init__("turtlebot_controller_node")
 
-        waypoint_values = self.declare_parameter(
-            "waypoints",
-            DEFAULT_WAYPOINTS,
-        ).value
+        waypoint_values = self.declare_parameter("waypoints", DEFAULT_WAYPOINTS).value  #type: ignore
 
-        if len(waypoint_values) % 2:
+        if len(waypoint_values) % 2:    #type: ignore
             raise ValueError("waypoints must contain x, z pairs")
 
-        if not all(math.isfinite(value) for value in waypoint_values):
+        if not all(math.isfinite(value) for value in waypoint_values):  #type: ignore
             raise ValueError("waypoints must contain finite values")
 
         self.waypoints = list(
-            zip(waypoint_values[0::2], waypoint_values[1::2])
+            zip(waypoint_values[0::2], waypoint_values[1::2])   #type: ignore
         )
 
         forward_axis = self.declare_parameter(
@@ -89,38 +86,20 @@ class TurtleBotControllerNode(Node):
             [0.0, 1.0, 0.0],
         ).value
 
-        if len(forward_axis) != 3:
+        if len(forward_axis) != 3:  #type: ignore
             raise ValueError("object_forward_axis must have three values")
 
-        self.forward_axis = tuple(float(value) for value in forward_axis)
+        self.forward_axis = tuple(float(value) for value in forward_axis)   #type: ignore
 
-        self.linear_gain = float(
-            self.declare_parameter("linear_gain", 0.8).value
-        )
-        self.angular_gain = float(
-            self.declare_parameter("angular_gain", 1.8).value
-        )
-        self.max_linear_speed = float(
-            self.declare_parameter("max_linear_speed", 0.12).value
-        )
-        self.max_angular_speed = float(
-            self.declare_parameter("max_angular_speed", 0.6).value
-        )
-        self.waypoint_tolerance = float(
-            self.declare_parameter("waypoint_tolerance", 0.06).value
-        )
-        self.turn_in_place_angle = float(
-            self.declare_parameter("turn_in_place_angle", 0.45).value
-        )
-        self.pose_timeout = float(
-            self.declare_parameter("pose_timeout_s", 0.25).value
-        )
-        self.max_pose_age = float(
-            self.declare_parameter("max_pose_age_s", 0.25).value
-        )
-        self.angular_velocity_sign = float(
-            self.declare_parameter("angular_velocity_sign", -1.0).value
-        )
+        self.linear_gain = float(self.declare_parameter("linear_gain", 0.8).value)  #type: ignore
+        self.angular_gain = float(self.declare_parameter("angular_gain", 1.8).value)    #type: ignore
+        self.max_linear_speed = float(self.declare_parameter("max_linear_speed", 0.12).value)   #type: ignore
+        self.max_angular_speed = float(self.declare_parameter("max_angular_speed", 0.6).value)  #type: ignore
+        self.waypoint_tolerance = float(self.declare_parameter("waypoint_tolerance", 0.06).value)   #type: ignore
+        self.turn_in_place_angle = float(self.declare_parameter("turn_in_place_angle", 0.45).value) #type: ignore
+        self.pose_timeout = float(self.declare_parameter("pose_timeout_s", 0.25).value) #type: ignore
+        self.max_pose_age = float(self.declare_parameter("max_pose_age_s", 0.25).value) #type: ignore
+        self.angular_velocity_sign = float(self.declare_parameter("angular_velocity_sign", -1.0).value) #type: ignore
 
         mpose_pose_topic = self.declare_parameter("mpose_pose_topic", "").value
         mpose_status_topic = self.declare_parameter("mpose_status_topic", "").value
@@ -241,7 +220,7 @@ class TurtleBotControllerNode(Node):
             self.stop(reason)
             return
 
-        position = self.pose.pose.position
+        position = self.pose.pose.position  #type: ignore
         target_x, target_z = self.waypoints[self.waypoint_index]
 
         dx = target_x - position.x
@@ -262,7 +241,7 @@ class TurtleBotControllerNode(Node):
 
             return
 
-        orientation = self.pose.pose.orientation
+        orientation = self.pose.pose.orientation    #type: ignore
 
         try:
             forward = rotate_vector(
