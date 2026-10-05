@@ -12,7 +12,7 @@ from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
 from geometry_msgs.msg import PoseStamped
 from rclpy.node import Node
 from scipy.spatial.transform import Rotation
-from mpose_live.utils import PacketGate
+from mpose_producer.utils import PacketGate
 
 
 def set_stamp(header, ns, frame):

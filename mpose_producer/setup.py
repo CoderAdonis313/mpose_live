@@ -2,8 +2,7 @@ from glob import glob
 
 from setuptools import find_packages, setup
 
-
-package_name = "mpose_live"
+package_name = "mpose_producer"
 
 setup(
     name=package_name,
@@ -21,14 +20,11 @@ setup(
     zip_safe=True,
     maintainer="abhi",
     maintainer_email="coderadonis@gmail.com",
-    description="MegaPose UDP bridge and live Vicon pose comparison",
+    description="live Vicon pose comparison and controller",
     license="TODO: License declaration",
-    extras_require={"test": ["pytest"]},
     entry_points={
         "console_scripts": [
             "mpose_bridge_node = mpose_live.mpose_bridge_node:main",
-            "gt_error_node = mpose_live.gt_error_node:main",
-            "controller_node = mpose_live.controller_node:main",
         ],
     },
 )

@@ -12,19 +12,6 @@ def generate_launch_description():
     mpose_terror_topic = '/mpose/terror'
     cmd_vel_topic = '/cmd_vel'
 
-
-    bridge_node = Node(
-        package="mpose_live",
-        executable="mpose_bridge_node",
-        output="screen",
-        parameters=[{
-            "use_sim_time": False,
-            "mpose_pose_topic": mpose_pose_topic,
-            "mpose_status_topic": mpose_status_topic
-        }],
-        emulate_tty=True
-    )
-
     gt_node = Node(
         package="mpose_live",
         executable="gt_error_node",
@@ -55,7 +42,6 @@ def generate_launch_description():
     )
     
     return LaunchDescription([
-        bridge_node,
-        # controller_node,
-        # gt_node
+        controller_node,
+        gt_node
     ])
