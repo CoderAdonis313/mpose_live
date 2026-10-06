@@ -6,19 +6,10 @@ import re
 from bisect import bisect_left
 import numpy as np
 import rclpy
-from geometry_msgs.msg import (
-    PoseStamped,
-    TransformStamped,
-)
+from geometry_msgs.msg import PoseStamped, TransformStamped
 from rclpy.node import Node
-from rclpy.qos import (
-    QoSProfile,
-    ReliabilityPolicy,
-)
-from scipy.spatial.transform import (
-    Rotation,
-    Slerp,
-)
+from rclpy.qos import QoSProfile, ReliabilityPolicy
+from scipy.spatial.transform import Rotation, Slerp
 
 
 def stamp_ns(stamp):
@@ -45,15 +36,10 @@ def pose_to_matrix(position, orientation):
         dtype=float,
     )
 
-    if (
-        not np.isfinite(translation).all()
-        or not np.isfinite(quaternion).all()
-        or np.linalg.norm(quaternion) < 1e-9
-    ):
+    if not np.isfinite(translation).all() or not np.isfinite(quaternion).all() or np.linalg.norm(quaternion) < 1e-9:
         raise ValueError("Pose contains invalid values")
 
     quaternion /= np.linalg.norm(quaternion)
-
     matrix = np.eye(4)
     matrix[:3, :3] = Rotation.from_quat(quaternion).as_matrix()
     matrix[:3, 3] = translation
@@ -100,22 +86,14 @@ class PoseHistory:
         self.matrices.append(matrix)
 
         oldest_allowed = timestamp_ns - self.duration_ns
-
-        cut = bisect_left(
-            self.timestamps,
-            oldest_allowed,
-        )
-
+        cut = bisect_left(self.timestamps, oldest_allowed)
         if cut > 0:
             del self.timestamps[:cut]
             del self.matrices[:cut]
 
 
     def at(self, timestamp_ns, maximum_gap_ns):
-        index = bisect_left(
-            self.timestamps,
-            timestamp_ns,
-        )
+        index = bisect_left(self.timestamps, timestamp_ns)
 
         if index < len(self.timestamps) and self.timestamps[index] == timestamp_ns:
             return self.matrices[index]
@@ -136,12 +114,8 @@ class PoseHistory:
         matrix_after = self.matrices[index]
 
         alpha = (timestamp_ns - time_before) / (time_after - time_before)
-
         interpolated = np.eye(4)
-
-        interpolated[:3, 3] = (1.0 - alpha) * matrix_before[
-            :3, 3
-        ] + alpha * matrix_after[:3, 3]
+        interpolated[:3, 3] = (1.0 - alpha) * matrix_before[:3, 3] + alpha * matrix_after[:3, 3]
 
         rotations = Rotation.from_matrix(
             np.stack(
@@ -173,15 +147,16 @@ class GTErrorNode(Node):
 
         self.mpose_topic_prefix = str(self.declare_parameter("mpose_topic_prefix", "/mpose/poses").value).rstrip("/")
         self.vicon_topic_prefix = str(self.declare_parameter("vicon_topic_prefix", "/vicon").value).rstrip("/")
-        bot_pattern = str(self.declare_parameter("bot_marker_pattern",r"^bot.*_marker$").value)
-        arena_pattern = str(self.declare_parameter("arena_marker_pattern", r"^arena.*_marker$",).value)
+        bot_pattern = str(self.declare_parameter("bot_marker_pattern", r"^bot.*_marker$").value)
+        arena_pattern = str(self.declare_parameter("arena_marker_pattern", r"^arena.*_marker$").value)
+        self.vicon_msg_type = str(self.declare_parameter('vicon_msg_type', "TransformStamped").value)
 
         # Optional exact arena name. Leave empty when the
         # arena pattern matches only one marker.
-        self.configured_arena = str(self.declare_parameter("arena_marker_name", "",).value).lower()
-        history_seconds = float(self.declare_parameter("vicon_history_s", 10.0).value) #type: ignore
-        maximum_gap_seconds = float(self.declare_parameter("max_vicon_gap_s", 0.05,).value) #type: ignore
-        discovery_period = float(self.declare_parameter("discovery_period_s", 1.0,).value)  #type: ignore
+        self.configured_arena = str(self.declare_parameter("arena_marker_name", "").value).lower()
+        history_seconds = float(self.declare_parameter("vicon_history_s", 10.0).value)  # type: ignore
+        maximum_gap_seconds = float(self.declare_parameter("max_vicon_gap_s", 0.05,).value)  # type: ignore
+        discovery_period = float(self.declare_parameter("discovery_period_s", 1.0,).value)  # type: ignore
 
         if not math.isfinite(history_seconds) or history_seconds <= 0:
             raise ValueError("vicon_history_s must be positive")
@@ -230,7 +205,7 @@ class GTErrorNode(Node):
         self.get_logger().info(f"Bot pattern: {bot_pattern}; " f"arena pattern: {arena_pattern}")
 
 
-    def is_marker_name(self, label,):
+    def is_marker_name(self, label):
         return bool(self.bot_pattern.fullmatch(label) or self.arena_pattern.fullmatch(label))
 
 
@@ -241,7 +216,7 @@ class GTErrorNode(Node):
 
 
     @staticmethod
-    def under_prefix(topic, prefix,):
+    def under_prefix(topic, prefix):
         return topic == prefix.lower() or topic.startswith(prefix + "/")
 
 
@@ -252,23 +227,14 @@ class GTErrorNode(Node):
             if not self.is_marker_name(label):
                 continue
 
-            if self.under_prefix(
-                topic,
-                self.mpose_topic_prefix,
-            ):
-                self.add_mpose_subscription(
-                    label,
-                    topic,
-                )
+            if self.under_prefix(topic, self.mpose_topic_prefix):
+                self.add_mpose_subscription(label, topic)
 
-            if self.under_prefix(
-                topic,
-                self.vicon_topic_prefix,
-            ):
-                self.add_vicon_pose_subscription(
-                    label,
-                    topic,
-                )
+            if self.under_prefix(topic, self.vicon_topic_prefix):
+                if self.vicon_msg_type == 'PoseStamped':
+                    self.add_vicon_pose_subscription(label, topic)
+                if self.vicon_msg_type == 'TransformStamped':
+                    self.add_vicon_transform_subscription(label, topic)
 
 
     def add_mpose_subscription(self, label, topic):
@@ -278,10 +244,7 @@ class GTErrorNode(Node):
         subscription = self.create_subscription(
             PoseStamped,
             topic,
-            lambda message, marker=label: self.on_mpose(
-                marker,
-                message,
-            ),
+            lambda message, marker=label: self.on_mpose(marker, message),
             50,
         )
         self.mpose_subscriptions[label] = subscription
@@ -295,10 +258,7 @@ class GTErrorNode(Node):
         subscription = self.create_subscription(
             PoseStamped,
             topic,
-            lambda message, marker=label: self.on_vicon_pose(
-                marker,
-                message,
-            ),
+            lambda message, marker=label: self.on_vicon_pose(marker, message),
             self.vicon_qos,
         )
         self.vicon_subscriptions[label] = subscription
@@ -306,11 +266,23 @@ class GTErrorNode(Node):
         self.get_logger().info(f"Vicon marker {label!r}: " f"{topic} [PoseStamped]")
 
 
-    def on_mpose(
-        self,
-        label,
-        message,
-    ):
+    def add_vicon_transform_subscription(self, label, topic):
+        if label in self.vicon_subscriptions:
+            return
+
+        subscription = self.create_subscription(
+            TransformStamped,
+            topic,
+            lambda message, marker=label: self.on_vicon_transform(marker, message,),
+            self.vicon_qos,
+        )
+
+        self.vicon_subscriptions[label] = subscription
+        self.vicon_histories[label] = PoseHistory(self.history_duration_ns)
+        self.get_logger().info(f"Vicon marker {label!r}: " f"{topic} [TransformStamped]")
+
+
+    def on_mpose(self, label, message,):
         timestamp_ns = stamp_ns(message.header.stamp)
 
         if timestamp_ns <= 0 or not message.header.frame_id:
@@ -341,12 +313,7 @@ class GTErrorNode(Node):
 
         existing_frame = self.vicon_parent_frames.get(label)
         if existing_frame is not None and existing_frame != parent_frame:
-            self.get_logger().warning(
-                f"Vicon parent frame changed "
-                f"for {label!r}: "
-                f"{existing_frame!r} -> "
-                f"{parent_frame!r}"
-            )
+            self.get_logger().warning(f"Vicon parent frame changed " f"for {label!r}: " f"{existing_frame!r} -> " f"{parent_frame!r}")
             return
 
         self.vicon_parent_frames[label] = parent_frame
@@ -399,19 +366,13 @@ class GTErrorNode(Node):
         if self.configured_arena:
             return self.configured_arena
 
-        candidates = {
-            label
-            for label in (set(self.latest_mpose) | set(self.vicon_histories))
-            if self.arena_pattern.fullmatch(label)
-        }
+        candidates = {label for label in (set(self.latest_mpose) | set(self.vicon_histories)) if self.arena_pattern.fullmatch(label)}
 
         if len(candidates) == 1:
             return next(iter(candidates))
 
         if len(candidates) > 1 and not self.discovery_warning_shown:
-            self.get_logger().warning(
-                "Multiple arena markers matched. " "Set arena_marker_name explicitly."
-            )
+            self.get_logger().warning("Multiple arena markers matched. " "Set arena_marker_name explicitly.")
 
             self.discovery_warning_shown = True
         return None
@@ -487,9 +448,7 @@ class GTErrorNode(Node):
                 continue
 
             except ValueError as error:
-                self.get_logger().warning(
-                    f"Cannot match {bot_label!r} " f"at {bot_timestamp}: {error}"
-                )
+                self.get_logger().warning(f"Cannot match {bot_label!r} " f"at {bot_timestamp}: {error}")
 
                 self.last_evaluated[bot_label] = bot_timestamp
 
@@ -505,9 +464,7 @@ class GTErrorNode(Node):
                 world_T_bot,
             )
 
-            translation_delta = (
-                estimated_arena_T_bot[:3, 3] - ground_truth_arena_T_bot[:3, 3]
-            )
+            translation_delta = estimated_arena_T_bot[:3, 3] - ground_truth_arena_T_bot[:3, 3]
 
             translation_error_m = float(np.linalg.norm(translation_delta))
 
