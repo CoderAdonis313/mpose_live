@@ -48,6 +48,25 @@ def generate_launch_description():
         emulate_tty=True,
     )
 
+
+    relative_pose_node = Node(
+        package="mpose_consumer",
+        executable="rel_pose_node",
+        output="screen",
+        parameters=[{
+            "arena_marker_name": "arena1_marker",
+            "bot_marker_name": "bot1_marker",
+            "mpose_topic_prefix": "/mpose/poses",
+            "vicon_topic_prefix": "/vicon",
+            "estimated_output_topic":
+                "/relative_pose/estimated",
+            "ground_truth_output_topic":
+                "/relative_pose/ground_truth",
+            "sync_tolerance_s": 0.01,
+        }],
+    )
+
+
     controller_node = Node(
         package="mpose_consumer",
         executable="controller_node",
@@ -63,5 +82,6 @@ def generate_launch_description():
     
     return LaunchDescription([
         # controller_node,
-        gt_node
+        gt_node,
+        relative_pose_node
     ])
