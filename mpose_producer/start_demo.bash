@@ -3,15 +3,14 @@ source /home/abhi/Dev/ros2_codes/research_ws/install/setup.bash
 
 ros2 launch mpose_producer producer.launch.py
 
-
 ################################################### RERUN THIS ON SEPARATE TERMINAL ###################################################
 BAG_NAME="mpose_run_$(date +%s)"
 echo "INFO: Saving to rosbag $BAG_NAME"
 ros2 bag record \
   --storage mcap \
   --output "rosbags/$BAG_NAME" \
-  --topics \
-    /mpose/error 
+  # --topics \
+  #   /mpose/error 
 
 
 ############################################################ Play the ros bag #########################################################

@@ -12,20 +12,40 @@ def generate_launch_description():
     mpose_terror_topic = '/mpose/terror'
     cmd_vel_topic = '/cmd_vel'
 
+
     gt_node = Node(
         package="mpose_consumer",
         executable="gt_error_node",
         output="screen",
         parameters=[{
             "use_sim_time": False,
-            "mpose_pose_topic": mpose_pose_topic,
-            "mpose_error_topic": mpose_error_topic,
-            "robot_vicon_topic": robot_vicon_topic,
-            "cam_vicon_topic": cam_vicon_topic,
-            "gt_pose_topic": gt_pose_topic,
-            "mpose_terror_topic": mpose_terror_topic,
+
+            "mpose_topic_prefix":
+                "/mpose/poses",
+
+            "vicon_topic_prefix":
+                "/vicon",
+
+            "bot_marker_pattern":
+                r"^bot.*_marker$",
+
+            "arena_marker_pattern":
+                r"^arena.*_marker$",
+
+            # Recommended when you have exactly one arena.
+            "arena_marker_name":
+                "arena1_marker",
+
+            "vicon_history_s":
+                10.0,
+
+            "max_vicon_gap_s":
+                0.05,
+
+            "discovery_period_s":
+                1.0,
         }],
-        emulate_tty=True
+        emulate_tty=True,
     )
 
     controller_node = Node(
@@ -42,6 +62,6 @@ def generate_launch_description():
     )
     
     return LaunchDescription([
-        controller_node,
+        # controller_node,
         gt_node
     ])

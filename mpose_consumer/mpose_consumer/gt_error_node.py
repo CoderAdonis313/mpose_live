@@ -1,171 +1,167 @@
 #!/usr/bin/env python3
-"""Compare MegaPose with Vicon ground truth at the image timestamp."""
+"""Compare arena-relative MegaPose and Vicon marker poses."""
 
 import math
-import time
+import re
 from bisect import bisect_left
-from collections import deque
-
 import numpy as np
 import rclpy
-from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
-from geometry_msgs.msg import PoseStamped, TransformStamped, Vector3Stamped
+from geometry_msgs.msg import (
+    PoseStamped,
+    TransformStamped,
+)
 from rclpy.node import Node
-from rclpy.qos import QoSProfile, ReliabilityPolicy
-from scipy.spatial.transform import Rotation, Slerp
-
-
-# Existing metrics_postprocess.py assumptions:
-# camera optical frame expressed in the tracked camera-body frame.
-CAMERA_AXES = np.array([
-    [-1.0,  0.0,  0.0, 0.0],
-    [ 0.0,  0.0, -1.0, 0.0],
-    [ 0.0, -1.0,  0.0, 0.0],
-    [ 0.0,  0.0,  0.0, 1.0],
-])
+from rclpy.qos import (
+    QoSProfile,
+    ReliabilityPolicy,
+)
+from scipy.spatial.transform import (
+    Rotation,
+    Slerp,
+)
 
 
 def stamp_ns(stamp):
     return stamp.sec * 1_000_000_000 + stamp.nanosec
 
 
-def set_stamp(header, ns, frame):
-    header.stamp.sec, header.stamp.nanosec = divmod(int(ns), 1_000_000_000)
-    header.frame_id = frame
+def pose_to_matrix(position, orientation):
+    translation = np.array(
+        [
+            position.x,
+            position.y,
+            position.z,
+        ],
+        dtype=float,
+    )
 
-
-def checked_transform(value):
-    matrix = np.asarray(value, dtype=float)
-
-    if matrix.shape != (4, 4) or not np.isfinite(matrix).all():
-        raise ValueError("Expected a finite 4x4 transform")
-
-    rot = matrix[:3, :3]
-    if (
-        not np.allclose(matrix[3], [0, 0, 0, 1], atol=1e-6)
-        or not np.allclose(rot.T @ rot, np.eye(3), atol=1e-3)
-        or not np.isclose(np.linalg.det(rot), 1.0, atol=1e-3)
-    ):
-        raise ValueError("Invalid rigid transform")
-
-    return matrix
-
-
-def from_pose(position, orientation):
-    p = np.array([position.x, position.y, position.z])
-    q = np.array([
-        orientation.x,
-        orientation.y,
-        orientation.z,
-        orientation.w,
-    ])
+    quaternion = np.array(
+        [
+            orientation.x,
+            orientation.y,
+            orientation.z,
+            orientation.w,
+        ],
+        dtype=float,
+    )
 
     if (
-        not np.isfinite(p).all()
-        or not np.isfinite(q).all()
-        or np.linalg.norm(q) < 1e-12
+        not np.isfinite(translation).all()
+        or not np.isfinite(quaternion).all()
+        or np.linalg.norm(quaternion) < 1e-9
     ):
-        raise ValueError("Invalid position or quaternion")
+        raise ValueError("Pose contains invalid values")
+
+    quaternion /= np.linalg.norm(quaternion)
 
     matrix = np.eye(4)
-    matrix[:3, :3] = Rotation.from_quat(q).as_matrix()
-    matrix[:3, 3] = p
+    matrix[:3, :3] = Rotation.from_quat(quaternion).as_matrix()
+    matrix[:3, 3] = translation
     return matrix
 
 
-def pose_message(matrix, ns, frame):
-    msg = PoseStamped()
-    set_stamp(msg.header, ns, frame)
-
-    p = matrix[:3, 3]
-    q = Rotation.from_matrix(matrix[:3, :3]).as_quat()  #type: ignore
-
-    msg.pose.position.x, msg.pose.position.y, msg.pose.position.z = map(float, p)
-    (
-        msg.pose.orientation.x,
-        msg.pose.orientation.y,
-        msg.pose.orientation.z,
-        msg.pose.orientation.w,
-    ) = map(float, q)
-
-    return msg
+def pose_stamped_to_matrix(message):
+    return pose_to_matrix(
+        message.pose.position,
+        message.pose.orientation,
+    )
 
 
-def diagnostic(pub, name, message, level, ns, **values):
-    msg = DiagnosticArray()
-    set_stamp(msg.header, ns, "")
-
-    status = DiagnosticStatus()
-    status.name = name
-    status.message = message
-    status.level = level
-    status.values = [
-        KeyValue(key=str(k), value=str(v)) for k, v in values.items()
-    ]
-
-    msg.status = [status]
-    pub.publish(msg)
+def transform_stamped_to_matrix(message):
+    return pose_to_matrix(
+        message.transform.translation,
+        message.transform.rotation,
+    )
 
 
-def positive(node, name, default):
-    value = float(node.declare_parameter(name, default).value)
-    if not math.isfinite(value) or value <= 0:
-        raise ValueError(f"{name} must be finite and positive")
-    return value
+def relative_pose(parent_pose, child_pose):
+    """Return the child pose expressed in the parent frame."""
+    return np.linalg.inv(parent_pose) @ child_pose
+
+
+def rotation_error_degrees(estimated, ground_truth):
+    error_rotation = ground_truth[:3, :3].T @ estimated[:3, :3]
+    return float(np.degrees(Rotation.from_matrix(error_rotation).magnitude()))
 
 
 class PoseHistory:
-    """Keep timestamped transforms and interpolate within their coverage."""
-
+    """Timestamped Vicon history with interpolation."""
     def __init__(self, duration_ns):
         self.duration_ns = duration_ns
-        self.stamps = []
+        self.timestamps = []
         self.matrices = []
 
-    def add(self, ns, matrix):
-        if self.stamps and ns <= self.stamps[-1]:
+
+    def add(self, timestamp_ns, matrix):
+        if self.timestamps and timestamp_ns <= self.timestamps[-1]:
             return
 
-        self.stamps.append(ns)
+        self.timestamps.append(timestamp_ns)
         self.matrices.append(matrix)
 
-        cut = max(
-            0,
-            bisect_left(self.stamps, ns - self.duration_ns) - 1,
-            len(self.stamps) - 10000,
+        oldest_allowed = timestamp_ns - self.duration_ns
+
+        cut = bisect_left(
+            self.timestamps,
+            oldest_allowed,
         )
 
-        if cut:
-            del self.stamps[:cut]
+        if cut > 0:
+            del self.timestamps[:cut]
             del self.matrices[:cut]
 
-    def at(self, ns, max_gap_ns):
-        i = bisect_left(self.stamps, ns)
 
-        if i < len(self.stamps) and self.stamps[i] == ns:
-            return self.matrices[i]
+    def at(self, timestamp_ns, maximum_gap_ns):
+        index = bisect_left(
+            self.timestamps,
+            timestamp_ns,
+        )
 
-        if i == len(self.stamps):
-            raise LookupError("Waiting for Vicon samples after the image")
+        if index < len(self.timestamps) and self.timestamps[index] == timestamp_ns:
+            return self.matrices[index]
 
-        if i == 0:
-            raise ValueError("Image is older than Vicon history")
+        if index == len(self.timestamps):
+            raise LookupError("Waiting for a newer Vicon sample")
 
-        t0, t1 = self.stamps[i - 1:i + 1]
-        if t1 - t0 > max_gap_ns:
-            raise ValueError("Vicon interpolation gap is too large")
+        if index == 0:
+            raise ValueError("Timestamp is older than " "Vicon history")
 
-        a, b = self.matrices[i - 1:i + 1]
-        alpha = (ns - t0) / (t1 - t0)
+        time_before = self.timestamps[index - 1]
+        time_after = self.timestamps[index]
 
-        matrix = np.eye(4)
-        matrix[:3, 3] = (1 - alpha) * a[:3, 3] + alpha * b[:3, 3]
-        matrix[:3, :3] = Slerp(
-            [0.0, 1.0],
-            Rotation.from_matrix(np.stack([a[:3, :3], b[:3, :3]])),
-        )(alpha).as_matrix()
+        if time_after - time_before > maximum_gap_ns:
+            raise ValueError("Vicon interpolation gap " "is too large")
 
-        return matrix
+        matrix_before = self.matrices[index - 1]
+        matrix_after = self.matrices[index]
+
+        alpha = (timestamp_ns - time_before) / (time_after - time_before)
+
+        interpolated = np.eye(4)
+
+        interpolated[:3, 3] = (1.0 - alpha) * matrix_before[
+            :3, 3
+        ] + alpha * matrix_after[:3, 3]
+
+        rotations = Rotation.from_matrix(
+            np.stack(
+                [
+                    matrix_before[:3, :3],
+                    matrix_after[:3, :3],
+                ]
+            )
+        )
+
+        interpolated[:3, :3] = Slerp(
+            [
+                0.0,
+                1.0,
+            ],
+            rotations,
+        )(
+            [alpha]
+        ).as_matrix()[0]
+        return interpolated
 
 
 class GTErrorNode(Node):
@@ -173,235 +169,363 @@ class GTErrorNode(Node):
         super().__init__("gt_error_node")
 
         if self.get_parameter("use_sim_time").value:
-            raise ValueError("Live host timestamps require use_sim_time=false")
+            raise ValueError("This live comparison requires " "use_sim_time=false")
 
-        self.frame = self.declare_parameter("camera_frame", "zed_left_camera_optical_frame").value
-        self.ready = self.declare_parameter("evaluation_enabled", True).value
-        self.preliminary = self.declare_parameter("preliminary", True).value
-        bot_topic = self.declare_parameter('robot_vicon_topic', "").value
-        cam_topic = self.declare_parameter('cam_vicon_topic', "").value
-        mpose_pose_topic = self.declare_parameter('mpose_pose_topic', "").value
-        gt_pose_topic = self.declare_parameter('gt_pose_topic', "").value
-        mpose_error_topic = self.declare_parameter('mpose_error_topic', "").value
-        mpose_terror_topic = self.declare_parameter('mpose_terror_topic', "").value
+        self.mpose_topic_prefix = str(self.declare_parameter("mpose_topic_prefix", "/mpose/poses").value).rstrip("/")
+        self.vicon_topic_prefix = str(self.declare_parameter("vicon_topic_prefix", "/vicon").value).rstrip("/")
+        bot_pattern = str(self.declare_parameter("bot_marker_pattern",r"^bot.*_marker$").value)
+        arena_pattern = str(self.declare_parameter("arena_marker_pattern", r"^arena.*_marker$",).value)
 
+        # Optional exact arena name. Leave empty when the
+        # arena pattern matches only one marker.
+        self.configured_arena = str(self.declare_parameter("arena_marker_name", "",).value).lower()
+        history_seconds = float(self.declare_parameter("vicon_history_s", 10.0).value) #type: ignore
+        maximum_gap_seconds = float(self.declare_parameter("max_vicon_gap_s", 0.05,).value) #type: ignore
+        discovery_period = float(self.declare_parameter("discovery_period_s", 1.0,).value)  #type: ignore
 
-        self.T_vc_c = checked_transform(
-            np.array(
-                self.declare_parameter(
-                    "camera_body_to_optical",
-                    CAMERA_AXES.ravel().tolist(),
-                ).value
-            ).reshape(4, 4)
-        )
-        self.T_vo_o = checked_transform(
-            np.array(
-                self.declare_parameter(
-                    "marker_body_to_mesh",
-                    np.eye(4).ravel().tolist(),
-                ).value
-            ).reshape(4, 4)
-        )
+        if not math.isfinite(history_seconds) or history_seconds <= 0:
+            raise ValueError("vicon_history_s must be positive")
 
-        history_ns = int(positive(self, "history_s", 20.0) * 1e9)
-        self.gap_ns = int(positive(self, "max_vicon_gap_s", 0.05) * 1e9)
-        self.wait_s = positive(self, "sync_wait_s", 1.0)
+        if not math.isfinite(maximum_gap_seconds) or maximum_gap_seconds <= 0:
+            raise ValueError("max_vicon_gap_s must be positive")
 
-        self.history = {
-            name: PoseHistory(history_ns) for name in ("robot", "cam")
-        }
-        self.frames = {}
-        self.frame_fault = False
-        self.pending = deque()
-        self.last_estimate = None
-        self.last_log = 0.0
-        self.matched = 0
-        self.missed = 0
+        self.bot_pattern = re.compile(bot_pattern, re.IGNORECASE,)
+        self.arena_pattern = re.compile(arena_pattern, re.IGNORECASE,)
+        self.history_duration_ns = int(history_seconds * 1_000_000_000)
+        self.maximum_vicon_gap_ns = int(maximum_gap_seconds * 1_000_000_000)
 
-        self.gt_pub = self.create_publisher(msg_type=PoseStamped, topic=gt_pose_topic, qos_profile=100)  #type: ignore
-        self.error_pub = self.create_publisher(msg_type=DiagnosticArray, topic=mpose_error_topic, qos_profile=10)   #type: ignore
-        self.delta_pub = self.create_publisher(msg_type=Vector3Stamped, topic=mpose_terror_topic, qos_profile=10)    #type: ignore
+        # label -> subscription
+        self.mpose_subscriptions = {}
+        self.vicon_subscriptions = {}
 
-        qos = QoSProfile(
+        # label -> (timestamp, camera frame, matrix)
+        self.latest_mpose = {}
+
+        # label -> PoseHistory
+        self.vicon_histories = {}
+
+        # label -> Vicon parent frame
+        self.vicon_parent_frames = {}
+
+        # bot label -> last successfully evaluated timestamp
+        self.last_evaluated = {}
+
+        self.discovery_warning_shown = False
+
+        self.vicon_qos = QoSProfile(
             depth=1000,
-            reliability=ReliabilityPolicy.BEST_EFFORT,
+            reliability=(ReliabilityPolicy.BEST_EFFORT),
         )
 
-        self.create_subscription(
-            msg_type=PoseStamped,
-            topic=bot_topic,   #type: ignore
-            callback=lambda msg: self.on_vicon("robot", msg),
-            qos_profile=qos)
-        
-        self.create_subscription(
-            msg_type=PoseStamped,
-            topic=cam_topic,   #type: ignore
-            callback=lambda msg: self.on_vicon("cam", msg),
-            qos_profile=qos)
-        
-        self.create_subscription(msg_type=PoseStamped, topic=mpose_pose_topic, callback=self.on_estimate, qos_profile=100)    #type: ignore
+        self.create_timer(
+            discovery_period,
+            self.discover_topics,
+        )
 
-        self.create_timer(0.02, self.process)
-        self.create_timer(1.0, self.idle_status)
+        # Try immediately instead of waiting for the first timer.
+        self.discover_topics()
 
-        if self.preliminary:
+        self.get_logger().info("Looking for MegaPose topics under " f"{self.mpose_topic_prefix}/")
+        self.get_logger().info("Looking for Vicon topics under " f"{self.vicon_topic_prefix}/")
+        self.get_logger().info(f"Bot pattern: {bot_pattern}; " f"arena pattern: {arena_pattern}")
+
+
+    def is_marker_name(self, label,):
+        return bool(self.bot_pattern.fullmatch(label) or self.arena_pattern.fullmatch(label))
+
+
+    @staticmethod
+    def topic_marker_name(topic):
+        """Use the final topic component as the marker name."""
+        return topic.rstrip("/").split("/")[-1].lower()
+
+
+    @staticmethod
+    def under_prefix(topic, prefix,):
+        return topic == prefix.lower() or topic.startswith(prefix + "/")
+
+
+    def discover_topics(self):
+        for topic, message_types in self.get_topic_names_and_types():
+            label = self.topic_marker_name(topic)
+
+            if not self.is_marker_name(label):
+                continue
+
+            if self.under_prefix(
+                topic,
+                self.mpose_topic_prefix,
+            ):
+                self.add_mpose_subscription(
+                    label,
+                    topic,
+                )
+
+            if self.under_prefix(
+                topic,
+                self.vicon_topic_prefix,
+            ):
+                self.add_vicon_pose_subscription(
+                    label,
+                    topic,
+                )
+
+
+    def add_mpose_subscription(self, label, topic):
+        if label in self.mpose_subscriptions:
+            return
+
+        subscription = self.create_subscription(
+            PoseStamped,
+            topic,
+            lambda message, marker=label: self.on_mpose(
+                marker,
+                message,
+            ),
+            50,
+        )
+        self.mpose_subscriptions[label] = subscription
+        self.get_logger().info(f"MegaPose marker {label!r}: " f"{topic}")
+
+
+    def add_vicon_pose_subscription(self, label, topic):
+        if label in self.vicon_subscriptions:
+            return
+
+        subscription = self.create_subscription(
+            PoseStamped,
+            topic,
+            lambda message, marker=label: self.on_vicon_pose(
+                marker,
+                message,
+            ),
+            self.vicon_qos,
+        )
+        self.vicon_subscriptions[label] = subscription
+        self.vicon_histories[label] = PoseHistory(self.history_duration_ns)
+        self.get_logger().info(f"Vicon marker {label!r}: " f"{topic} [PoseStamped]")
+
+
+    def on_mpose(
+        self,
+        label,
+        message,
+    ):
+        timestamp_ns = stamp_ns(message.header.stamp)
+
+        if timestamp_ns <= 0 or not message.header.frame_id:
+            return
+
+        try:
+            matrix = pose_stamped_to_matrix(message)
+        except ValueError:
+            return
+
+        self.latest_mpose[label] = (
+            timestamp_ns,
+            message.header.frame_id,
+            matrix,
+        )
+        self.compare_available()
+
+
+    def add_vicon_sample(
+        self,
+        label,
+        timestamp_ns,
+        parent_frame,
+        matrix,
+    ):
+        if timestamp_ns <= 0 or not parent_frame:
+            return
+
+        existing_frame = self.vicon_parent_frames.get(label)
+        if existing_frame is not None and existing_frame != parent_frame:
             self.get_logger().warning(
-                "Using metrics_postprocess.py frame assumptions; "
-                "errors are preliminary."
+                f"Vicon parent frame changed "
+                f"for {label!r}: "
+                f"{existing_frame!r} -> "
+                f"{parent_frame!r}"
             )
+            return
+
+        self.vicon_parent_frames[label] = parent_frame
+        self.vicon_histories[label].add(
+            timestamp_ns,
+            matrix,
+        )
+        # A newer Vicon sample may now allow interpolation at
+        # a previously received MegaPose image timestamp.
+        self.compare_available()
 
 
-    def report(self, state, ns=None, **values):
-        diagnostic(
-            self.error_pub,
-            "megapose_vs_vicon",
-            state,
-            DiagnosticStatus.OK
-            if state == "MATCHED"
-            else DiagnosticStatus.WARN,
-            time.time_ns() if ns is None else ns,
-            matched=self.matched,
-            missed=self.missed,
-            preliminary=self.preliminary,
-            **values,
+    def on_vicon_transform(
+        self,
+        label,
+        message,
+    ):
+        try:
+            matrix = transform_stamped_to_matrix(message)
+        except ValueError:
+            return
+
+        self.add_vicon_sample(
+            label,
+            stamp_ns(message.header.stamp),
+            message.header.frame_id,
+            matrix,
         )
 
 
-    def idle_status(self):
-        if not self.ready:
-            self.report("EVALUATION_DISABLED")
-        elif self.frame_fault:
-            self.report("VICON_FRAME_MISMATCH")
-        elif (
-            self.last_estimate is None
-            or time.monotonic() - self.last_estimate > 2.0
-        ):
-            self.report("WAITING_FOR_ESTIMATE")
-
-
-    def on_vicon(self, name, msg):
-        ns = stamp_ns(msg.header.stamp)
-        frame = msg.header.frame_id
-
-        if ns <= 0 or not frame or self.frame_fault:
-            return
-
-        if name in self.frames and self.frames[name] != frame:
-            self.frame_fault = True
-            self.report("VICON_FRAME_MISMATCH")
-            return
-
+    def on_vicon_pose(
+        self,
+        label,
+        message,
+    ):
         try:
-            matrix = from_pose(
-                msg.pose.position,
-                msg.pose.orientation,
+            matrix = pose_stamped_to_matrix(message)
+        except ValueError:
+            return
+
+        self.add_vicon_sample(
+            label,
+            stamp_ns(message.header.stamp),
+            message.header.frame_id,
+            matrix,
+        )
+
+
+    def arena_label(self):
+        if self.configured_arena:
+            return self.configured_arena
+
+        candidates = {
+            label
+            for label in (set(self.latest_mpose) | set(self.vicon_histories))
+            if self.arena_pattern.fullmatch(label)
+        }
+
+        if len(candidates) == 1:
+            return next(iter(candidates))
+
+        if len(candidates) > 1 and not self.discovery_warning_shown:
+            self.get_logger().warning(
+                "Multiple arena markers matched. " "Set arena_marker_name explicitly."
             )
-        except ValueError:
+
+            self.discovery_warning_shown = True
+        return None
+
+
+    def compare_available(self):
+        arena_label = self.arena_label()
+
+        if arena_label is None:
             return
 
-        self.frames[name] = frame
+        arena_estimate = self.latest_mpose.get(arena_label)
+        arena_history = self.vicon_histories.get(arena_label)
 
-        if (
-            len(self.frames) == 2
-            and self.frames["cam"] != self.frames["robot"]
-        ):
-            self.frame_fault = True
-            self.report("VICON_FRAME_MISMATCH")
-            return
-        self.history[name].add(ns, matrix)
-
-
-    def on_estimate(self, msg):
-        self.last_estimate = time.monotonic()
-
-        if not self.ready or self.frame_fault:
+        if arena_estimate is None or arena_history is None:
             return
 
-        ns = stamp_ns(msg.header.stamp)
-        if ns <= 0 or msg.header.frame_id != self.frame:
-            self.report("INVALID_ESTIMATE_FRAME")
-            return
+        (
+            arena_timestamp,
+            camera_frame,
+            camera_T_arena,
+        ) = arena_estimate
 
-        try:
-            matrix = from_pose(msg.pose.position, msg.pose.orientation)
-        except ValueError:
-            self.report("INVALID_ESTIMATE")
-            return
+        for bot_label, bot_estimate in self.latest_mpose.items():
+            if not self.bot_pattern.fullmatch(bot_label):
+                continue
 
-        if len(self.pending) >= 200:
-            self.pending.popleft()
-            self.missed += 1
+            bot_history = self.vicon_histories.get(bot_label)
 
-        self.pending.append((ns, matrix, time.monotonic()))
+            if bot_history is None:
+                continue
 
+            (
+                bot_timestamp,
+                bot_camera_frame,
+                camera_T_bot,
+            ) = bot_estimate
 
-    def process(self):
-        if self.frame_fault:
-            self.pending.clear()
-            return
+            # Both MegaPose matrices must originate from the
+            # same source image.
+            if bot_timestamp != arena_timestamp:
+                continue
 
-        while self.pending:
-            ns, estimate, received = self.pending[0]
+            if bot_camera_frame != camera_frame:
+                continue
+
+            if bot_timestamp <= self.last_evaluated.get(
+                bot_label,
+                -1,
+            ):
+                continue
+
+            arena_parent = self.vicon_parent_frames.get(arena_label)
+
+            bot_parent = self.vicon_parent_frames.get(bot_label)
+
+            if arena_parent is None or bot_parent is None or arena_parent != bot_parent:
+                continue
 
             try:
-                camera = self.history["cam"].at(ns, self.gap_ns)
-                marker = self.history["robot"].at(ns, self.gap_ns)
-            except LookupError as error:
-                if time.monotonic() - received < self.wait_s:
-                    break
+                world_T_arena = arena_history.at(
+                    bot_timestamp,
+                    self.maximum_vicon_gap_ns,
+                )
 
-                self.pending.popleft()
-                self.missed += 1
-                self.report("VICON_TIMEOUT", ns, reason=error)
+                world_T_bot = bot_history.at(
+                    bot_timestamp,
+                    self.maximum_vicon_gap_ns,
+                )
+
+            except LookupError:
+                # Wait for newer Vicon samples.
                 continue
+
             except ValueError as error:
-                self.pending.popleft()
-                self.missed += 1
-                self.report("UNMATCHED", ns, reason=error)
+                self.get_logger().warning(
+                    f"Cannot match {bot_label!r} " f"at {bot_timestamp}: {error}"
+                )
+
+                self.last_evaluated[bot_label] = bot_timestamp
+
                 continue
 
-            self.pending.popleft()
-
-            # Object/mesh frame expressed in the camera optical frame.
-            # Same operation as your convert_to_cvframe(camera):
-            T_world_camera_optical = camera @ self.T_vc_c
-
-            # Express the tracked object's mesh pose in the camera optical frame:
-            T_world_object = marker @ self.T_vo_o
-            gt = np.linalg.inv(T_world_camera_optical) @ T_world_object
-
-            delta = estimate[:3, 3] - gt[:3, 3]
-            position_error = float(np.linalg.norm(delta))
-            rotation_error = float(
-                np.degrees(
-                    Rotation.from_matrix(
-                        gt[:3, :3].T @ estimate[:3, :3]
-                    ).magnitude()
-                )
+            estimated_arena_T_bot = relative_pose(
+                camera_T_arena,
+                camera_T_bot,
             )
 
-            self.gt_pub.publish(pose_message(gt, ns, self.frame))
-
-            msg = Vector3Stamped()
-            set_stamp(msg.header, ns, self.frame)
-            msg.vector.x, msg.vector.y, msg.vector.z = map(float, delta)
-            self.delta_pub.publish(msg)
-
-            self.matched += 1
-            self.report(
-                "MATCHED",
-                ns,
-                position_error_m=position_error,
-                rotation_error_deg=rotation_error,
-                estimate_age_s=(time.time_ns() - ns) / 1e9,
+            ground_truth_arena_T_bot = relative_pose(
+                world_T_arena,
+                world_T_bot,
             )
 
-            if time.monotonic() - self.last_log >= 1.0:
-                self.get_logger().info(
-                    f"Position error: {position_error * 100:.2f} cm; "
-                    f"rotation error: {rotation_error:.2f} deg"
-                )
-                self.last_log = time.monotonic()
+            translation_delta = (
+                estimated_arena_T_bot[:3, 3] - ground_truth_arena_T_bot[:3, 3]
+            )
+
+            translation_error_m = float(np.linalg.norm(translation_delta))
+
+            rotation_error_deg = rotation_error_degrees(
+                estimated_arena_T_bot,
+                ground_truth_arena_T_bot,
+            )
+
+            self.last_evaluated[bot_label] = bot_timestamp
+
+            self.get_logger().info(
+                f"{bot_label} wrt "
+                f"{arena_label}: "
+                f"translation error="
+                f"{translation_error_m * 100.0:.2f} cm, "
+                f"rotation error="
+                f"{rotation_error_deg:.2f} deg"
+            )
 
 
 def main(args=None):
@@ -411,11 +535,14 @@ def main(args=None):
     try:
         node = GTErrorNode()
         rclpy.spin(node)
+
     except KeyboardInterrupt:
         pass
+
     finally:
         if node is not None:
             node.destroy_node()
+
         if rclpy.ok():
             rclpy.shutdown()
 
