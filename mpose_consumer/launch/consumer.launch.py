@@ -8,7 +8,7 @@ def generate_launch_description():
     cmd_vel_topic = "/cmd_vel"
     vicon_prefix = "/vicon"
     mpose_prefix = "/mpose/poses"
-    vicon_msg_type = "PoseStamped"
+    vicon_msg_type = "TransformStamped"
 
     robot_vicon_topic = "/vicon/MARKER_YFORWARD/MARKER_YFORWARD"
     mpose_error_topic = "/mpose/error"

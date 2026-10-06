@@ -7,9 +7,9 @@ ros2 launch mpose_consumer consumer.launch.py
 BAG_NAME="mpose_run_$(date +%s)"
 echo "INFO: Saving to rosbag $BAG_NAME"
 ros2 bag record \
-  --storage mcap \
+  --storage sqlite3 \
   --output "rosbags/$BAG_NAME" \
-  --all-topics
+  --all
   # --topics \
   #   /mpose/error 
 
