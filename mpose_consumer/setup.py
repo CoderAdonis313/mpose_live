@@ -25,6 +25,7 @@ setup(
         "console_scripts": [
             f"gt_error_node = {package_name}.gt_error_node:main",
             f"controller_node = {package_name}.controller_node:main",
+            f"rel_pose_node = {package_name}.rel_pose_node:main"
         ],
     },
 )
