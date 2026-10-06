@@ -8,7 +8,7 @@ def generate_launch_description():
     cmd_vel_topic = "/cmd_vel"
     vicon_prefix = "/vicon"
     mpose_prefix = "/mpose/poses"
-    vicon_msg_type = "TransformStamped"
+    vicon_msg_type = "PoseStamped"
 
     robot_vicon_topic = "/vicon/MARKER_YFORWARD/MARKER_YFORWARD"
     mpose_error_topic = "/mpose/error"
@@ -49,6 +49,7 @@ def generate_launch_description():
                 "bot_marker_name": "bot1_marker",
                 "vicon_topic_prefix": vicon_prefix,
                 "mpose_topic_prefix": mpose_prefix,
+                "vicon_msg_type": vicon_msg_type,
                 "estimated_output_topic": "/relative_pose/estimated",
                 "ground_truth_output_topic": "/relative_pose/ground_truth",
                 "sync_tolerance_s": 0.01,
