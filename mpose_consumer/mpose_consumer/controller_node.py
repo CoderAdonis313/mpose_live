@@ -2,9 +2,10 @@
 from rclpy.node import Node
 import rclpy
 from nav_msgs.msg import Odometry
-from geometry_msgs.msg import TwistStamped, PoseStamped, TransformStamped
+from geometry_msgs.msg import Twist, PoseStamped, TransformStamped
 from tf_transformations import euler_from_quaternion
 from math import pi, atan2
+from ament_index_python.packages import get_package_share_directory
 
 
 class PID:
@@ -30,18 +31,17 @@ class DriverPIDNode(Node):
         super().__init__(node_name="driver_pid_node")
 
         self.rel_pose_topic = str(self.declare_parameter('relative_pose_topic', '').value)
-        self.drive_topic = str(self.declare_parameter('bot1_drive_topic', '').value)
-        self.rate = int(self.declare_parameter('pose_rate', 1/15).value) # type: ignore
-
+        self.drive_topic = str(self.declare_parameter('drive_topic', '').value)
+        self.rate = int(self.declare_parameter('pose_rate', 15).value) # type: ignore
+        
         self.create_subscription(
-            msg_type=Odometry,
+            msg_type=PoseStamped,
             topic=self.rel_pose_topic,
             qos_profile=10,
-            callback=self.listen_imu,
+            callback=self.listen_pose,
         )
 
-        self.pub_ = self.create_publisher(msg_type=TwistStamped, topic=self.drive_topic, qos_profile=10)
-
+        self.pub_ = self.create_publisher(msg_type=Twist, topic=self.drive_topic, qos_profile=10)
         self.control_timer_ = self.create_timer(1 / self.rate, self.control_loop)
 
         self.log_ = self.get_logger()
@@ -57,34 +57,38 @@ class DriverPIDNode(Node):
 
         # Run once method
         self.goal_idx = 0
-        self.goals = self.read_goals()
+        self.goals = [(1.0, 1.0), (1.0, -1.0), (-1.0, 1.0), (-1.0, -1.0)]
         self.ang_pid = PID()
         self.dist_pid = PID()
 
+
     def read_goals(self):
-        pkg_path = get_package_share_directory("goal_seek")
-        goal_txt_path = f"{pkg_path}/config/goals.txt"
+        pkg_path = get_package_share_directory('mpose_consumer')
+        goal_txt_path = f'{pkg_path}/config/goals.txt'
         goals = []
 
-        with open(goal_txt_path, "r") as f:
+        with open(goal_txt_path, 'r') as f:
             for line in f.readlines():
-                x, y = line.split(" ")
+                x, y = line.split(' ')
                 goals.append((float(x), float(y)))
 
-        self.log_.info(f"Goals to move to: {goals}")
+        self.log_.info(f'Goals to move to: {goals}')
         return goals
 
-    def listen_imu(self, msg: Odometry):
-        quats = msg.pose.pose.orientation
-        trans = msg.pose.pose.position
+
+    def listen_pose(self, msg):
+        quats = msg.pose.orientation
+        trans = msg.pose.position
 
         self.bot_loc = (trans.x, trans.y)
         # xyzw quaternion order
         _, _, self.bot_yaw = euler_from_quaternion([quats.x, quats.y, quats.z, quats.w])
 
+
     def publish_stop(self):
-        msg = TwistStamped()
+        msg = Twist()
         self.pub_.publish(msg)
+
 
     def calc_heading(self, goal):
         dy = goal[1] - self.bot_loc[1]
@@ -93,15 +97,16 @@ class DriverPIDNode(Node):
         ang = atan2(dy, dx)
         return abs(ang - self.bot_yaw)
 
+
     def calc_dist(self, goal):
         dy = goal[1] - self.bot_loc[1]
         dx = goal[0] - self.bot_loc[0]
-
         return (dy**2 + dx**2) ** 0.5
+
 
     def control_loop(self):
         current_goal = self.goals[self.goal_idx]
-        move_msg = TwistStamped()
+        move_msg = Twist()
         ang_error = self.calc_heading(current_goal)
         dist_error = self.calc_dist(current_goal)
 
@@ -109,12 +114,12 @@ class DriverPIDNode(Node):
             # tilt
             self.log_.info(f"Angle error: {ang_error}")
             ang_vel = self.ang_pid.compute(ang_error)
-            move_msg.twist.angular.z = ang_vel
+            move_msg.angular.z = ang_vel
         elif dist_error > self.DIST_THRESHOLD:
             # move
             self.log_.info(f"Dist error: {dist_error}")
             lin_vel = self.dist_pid.compute(dist_error)
-            move_msg.twist.linear.x = lin_vel
+            move_msg.linear.x = lin_vel
         else:
             # reached
             self.log_.info(f"Reached goal {current_goal}, moving to next")
