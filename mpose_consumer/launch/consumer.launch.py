@@ -5,7 +5,6 @@ from launch_ros.actions import Node
 def generate_launch_description():
     mpose_pose_topic = "/mpose/pose"
     mpose_status_topic = "/mpose/status"
-    cmd_vel_topic = "/cmd_vel"
     vicon_prefix = "/vicon"
     mpose_prefix = "/mpose/poses"
     vicon_msg_type = "TransformStamped"
@@ -63,7 +62,12 @@ def generate_launch_description():
         executable="controller_node",
         output="screen",
         parameters=[
-            {"use_sim_time": False, "mpose_pose_topic": mpose_pose_topic, "mpose_status_topic": mpose_status_topic, "cmd_vel_topic": cmd_vel_topic}
+            {
+                "use_sim_time": False, 
+                "relative_pose_topic": '/relative_pose/ground_truth',
+                "pose_rate": 15,
+                "drive_topic": '/cmd_vel'
+            }
         ],
         emulate_tty=True,
     )
@@ -71,7 +75,7 @@ def generate_launch_description():
 
     return LaunchDescription(
         [
-            # controller_node,
+            controller_node,
             gt_node,
             relative_pose_node,
         ]

@@ -1,302 +1,153 @@
 #!/usr/bin/env python3
-"""Drive a TurtleBot through camera-frame MegaPose waypoints."""
-
-import math
-import time
-
-import rclpy
-from diagnostic_msgs.msg import DiagnosticArray
-from geometry_msgs.msg import PoseStamped, Twist
 from rclpy.node import Node
+import rclpy
+from nav_msgs.msg import Odometry
+from geometry_msgs.msg import Twist, PoseStamped, TransformStamped
+from tf_transformations import euler_from_quaternion
+from math import pi, atan2
+from ament_index_python.packages import get_package_share_directory
 
 
-# Five default (x, z) points in zed_left_camera_optical_frame, metres.
-DEFAULT_WAYPOINTS = [
-    -0.16, 2.16,
-    -0.05, 2.05,
-    0.10, 2.05,
-    0.20, 2.16,
-    0.00, 2.20,
-]
+class PID:
+    def __init__(self, Kp=0.1, Ki=0.01, Kd=0.1):
+        self.Kp = Kp
+        self.Ki = Ki
+        self.Kd = Kd
+
+        self.dt = 0.1
+        self.sum = 0
+
+    def compute(self, de):
+        P = self.Kp * de
+        self.sum = self.sum + de * self.dt
+        I = self.Ki * self.sum
+        D = self.Kd * (de / self.dt)
+
+        return P + I + D
 
 
-def clamp(value, limit):
-    return max(-limit, min(limit, value))
-
-
-def rotate_vector(vector, quaternion):
-    """Rotate a three-vector by an xyzw quaternion."""
-    x, y, z, w = quaternion
-    norm = math.sqrt(x * x + y * y + z * z + w * w)
-
-    if not math.isfinite(norm) or norm < 1e-9:
-        raise ValueError("invalid pose quaternion")
-
-    x, y, z, w = (component / norm for component in quaternion)
-    vx, vy, vz = vector
-
-    tx = 2.0 * (y * vz - z * vy)
-    ty = 2.0 * (z * vx - x * vz)
-    tz = 2.0 * (x * vy - y * vx)
-
-    return (
-        vx + w * tx + y * tz - z * ty,
-        vy + w * ty + z * tx - x * tz,
-        vz + w * tz + x * ty - y * tx,
-    )
-
-
-def planar_heading_error(forward_x, forward_z, target_x, target_z):
-    """Signed angle from the current heading to the target direction."""
-    forward_norm = math.hypot(forward_x, forward_z)
-    target_norm = math.hypot(target_x, target_z)
-
-    if forward_norm < 1e-9 or target_norm < 1e-9:
-        raise ValueError("degenerate planar direction")
-
-    forward_x /= forward_norm
-    forward_z /= forward_norm
-    target_x /= target_norm
-    target_z /= target_norm
-
-    cross = forward_z * target_x - forward_x * target_z
-    dot = forward_x * target_x + forward_z * target_z
-
-    return math.atan2(cross, dot)
-
-
-class TurtleBotControllerNode(Node):
+class DriverPIDNode(Node):
     def __init__(self):
-        super().__init__("turtlebot_controller_node")
+        super().__init__(node_name="driver_pid_node")
 
-        waypoint_values = self.declare_parameter("waypoints", DEFAULT_WAYPOINTS).value  #type: ignore
-
-        if len(waypoint_values) % 2:    #type: ignore
-            raise ValueError("waypoints must contain x, z pairs")
-
-        if not all(math.isfinite(value) for value in waypoint_values):  #type: ignore
-            raise ValueError("waypoints must contain finite values")
-
-        self.waypoints = list(
-            zip(waypoint_values[0::2], waypoint_values[1::2])   #type: ignore
+        self.rel_pose_topic = str(self.declare_parameter('relative_pose_topic', '').value)
+        self.drive_topic = str(self.declare_parameter('drive_topic', '').value)
+        self.rate = int(self.declare_parameter('pose_rate', 15).value) # type: ignore
+        
+        self.create_subscription(
+            msg_type=PoseStamped,
+            topic=self.rel_pose_topic,
+            qos_profile=10,
+            callback=self.listen_pose,
         )
 
-        forward_axis = self.declare_parameter(
-            "object_forward_axis",
-            [0.0, 1.0, 0.0],
-        ).value
+        self.pub_ = self.create_publisher(msg_type=Twist, topic=self.drive_topic, qos_profile=10)
+        self.control_timer_ = self.create_timer(1 / self.rate, self.control_loop)
 
-        if len(forward_axis) != 3:  #type: ignore
-            raise ValueError("object_forward_axis must have three values")
+        self.log_ = self.get_logger()
+        self.log_.info("Created the node to drive bot")
 
-        self.forward_axis = tuple(float(value) for value in forward_axis)   #type: ignore
+        self.bot_yaw = 0
+        self.bot_loc = (0, 0)
+        self.shutdown_signal = False
+        self.DIST_THRESHOLD = 0.05  # 5 cm tolerance
+        self.ROT_THRESHOLD = 20 * (pi / 360)  # 10 degree tolerance
+        self.LIN_SPEED = 0.1
+        self.ANG_SPEED = 0.1
 
-        self.linear_gain = float(self.declare_parameter("linear_gain", 0.8).value)  #type: ignore
-        self.angular_gain = float(self.declare_parameter("angular_gain", 1.8).value)    #type: ignore
-        self.max_linear_speed = float(self.declare_parameter("max_linear_speed", 0.12).value)   #type: ignore
-        self.max_angular_speed = float(self.declare_parameter("max_angular_speed", 0.6).value)  #type: ignore
-        self.waypoint_tolerance = float(self.declare_parameter("waypoint_tolerance", 0.06).value)   #type: ignore
-        self.turn_in_place_angle = float(self.declare_parameter("turn_in_place_angle", 0.45).value) #type: ignore
-        self.pose_timeout = float(self.declare_parameter("pose_timeout_s", 0.25).value) #type: ignore
-        self.max_pose_age = float(self.declare_parameter("max_pose_age_s", 0.25).value) #type: ignore
-        self.angular_velocity_sign = float(self.declare_parameter("angular_velocity_sign", -1.0).value) #type: ignore
-
-        mpose_pose_topic = self.declare_parameter("mpose_pose_topic", "").value
-        mpose_status_topic = self.declare_parameter("mpose_status_topic", "").value
-        cmd_vel_topic = self.declare_parameter("cmd_vel_topic", "/cmd_vel").value
-
-        self.cmd_vel_pub = self.create_publisher(msg_type=Twist, topic=cmd_vel_topic, qos_profile=10) #type: ignore
-        self.create_subscription(msg_type=PoseStamped, topic=mpose_pose_topic, callback=self.on_pose, qos_profile=10) #type: ignore
-        self.create_subscription(msg_type=DiagnosticArray, topic=mpose_status_topic, callback=self.on_status, qos_profile=10) #type: ignore
-
-        self.pose = None
-        self.pose_received_at = None
-        self.pose_frame = None
-        self.tracking = False
-        self.waypoint_index = 0
-        self.last_stop_reason = None
-
-        self.create_timer(0.05, self.control)
-
-        self.get_logger().info(
-            f"Loaded {len(self.waypoints)} camera x-z waypoints"
-        )
+        # Run once method
+        self.goal_idx = 0
+        self.goals = [(1.0, 1.0), (1.0, -1.0), (-1.0, 1.0), (-1.0, -1.0)]
+        self.ang_pid = PID()
+        self.dist_pid = PID()
 
 
-    def on_pose(self, msg):
-        values = (
-            msg.pose.position.x,
-            msg.pose.position.y,
-            msg.pose.position.z,
-            msg.pose.orientation.x,
-            msg.pose.orientation.y,
-            msg.pose.orientation.z,
-            msg.pose.orientation.w,
-        )
+    def read_goals(self):
+        pkg_path = get_package_share_directory('mpose_consumer')
+        goal_txt_path = f'{pkg_path}/config/goals.txt'
+        goals = []
 
-        if not msg.header.frame_id or not all(map(math.isfinite, values)):
-            self.pose = None
-            self.stop("invalid pose")
+        with open(goal_txt_path, 'r') as f:
+            for line in f.readlines():
+                x, y = line.split(' ')
+                goals.append((float(x), float(y)))
+
+        self.log_.info(f'Goals to move to: {goals}')
+        return goals
+
+
+    def listen_pose(self, msg):
+        quats = msg.pose.orientation
+        trans = msg.pose.position
+
+        self.bot_loc = (trans.x, trans.y)
+        # xyzw quaternion order
+        _, _, self.bot_yaw = euler_from_quaternion([quats.x, quats.y, quats.z, quats.w])
+
+
+    def publish_stop(self):
+        msg = Twist()
+        self.pub_.publish(msg)
+
+
+    def calc_heading(self, goal):
+        dy = goal[1] - self.bot_loc[1]
+        dx = goal[0] - self.bot_loc[0]
+
+        ang = atan2(dy, dx)
+        return abs(ang - self.bot_yaw)
+
+
+    def calc_dist(self, goal):
+        dy = goal[1] - self.bot_loc[1]
+        dx = goal[0] - self.bot_loc[0]
+        return (dy**2 + dx**2) ** 0.5
+
+
+    def control_loop(self):
+        current_goal = self.goals[self.goal_idx]
+        move_msg = Twist()
+        ang_error = self.calc_heading(current_goal)
+        dist_error = self.calc_dist(current_goal)
+
+        if ang_error > self.ROT_THRESHOLD:
+            # tilt
+            self.log_.info(f"Angle error: {ang_error}")
+            ang_vel = self.ang_pid.compute(ang_error)
+            move_msg.angular.z = ang_vel
+        elif dist_error > self.DIST_THRESHOLD:
+            # move
+            self.log_.info(f"Dist error: {dist_error}")
+            lin_vel = self.dist_pid.compute(dist_error)
+            move_msg.linear.x = lin_vel
+        else:
+            # reached
+            self.log_.info(f"Reached goal {current_goal}, moving to next")
+            self.publish_stop()
+            self.goal_idx += 1
+
+        self.pub_.publish(move_msg)
+
+        if self.goal_idx >= len(self.goals):  # type: ignore
+            self.shutdown_signal = True
+            self.publish_stop()
+            self.log_.info("Reached all goals")
+            self.control_timer_.cancel()
             return
-
-        if self.pose_frame is None:
-            self.pose_frame = msg.header.frame_id
-        elif msg.header.frame_id != self.pose_frame:
-            self.pose = None
-            self.stop("pose frame changed")
-            return
-
-        try:
-            rotate_vector(self.forward_axis, values[3:])
-        except ValueError as error:
-            self.pose = None
-            self.stop(str(error))
-            return
-
-        self.pose = msg
-        self.pose_received_at = time.monotonic()
-
-
-    def on_status(self, msg):
-        states = [
-            status.message
-            for status in msg.status
-            if status.name == "megapose_stream"
-        ]
-
-        if not states:
-            return
-
-        self.tracking = states[-1] == "TRACKING"
-
-        if not self.tracking:
-            self.stop(f"tracking state is {states[-1]}")
-
-
-    def pose_is_fresh(self):
-        if self.pose is None or self.pose_received_at is None:
-            return False, "waiting for pose"
-
-        if time.monotonic() - self.pose_received_at > self.pose_timeout:
-            return False, "pose stream timed out"
-
-        stamp = self.pose.header.stamp
-        stamp_ns = stamp.sec * 1_000_000_000 + stamp.nanosec
-        age = (time.time_ns() - stamp_ns) / 1e9
-
-        if stamp_ns <= 0:
-            return False, "pose has no timestamp"
-
-        if age > self.max_pose_age:
-            return False, f"pose is {age:.3f} seconds old"
-
-        if age < -0.05:
-            return False, "pose timestamp is in the future"
-
-        return True, None
-
-
-    def stop(self, reason=None):
-        self.cmd_vel_pub.publish(Twist())
-
-        if reason is not None and reason != self.last_stop_reason:
-            self.get_logger().warning(f"Stopping: {reason}")
-
-        self.last_stop_reason = reason
-
-
-    def control(self):
-        if self.waypoint_index >= len(self.waypoints):
-            self.stop()
-            return
-
-        if not self.tracking:
-            self.stop("MegaPose is not tracking")
-            return
-
-        fresh, reason = self.pose_is_fresh()
-
-        if not fresh:
-            self.stop(reason)
-            return
-
-        position = self.pose.pose.position  #type: ignore
-        target_x, target_z = self.waypoints[self.waypoint_index]
-
-        dx = target_x - position.x
-        dz = target_z - position.z
-        distance = math.hypot(dx, dz)
-
-        if distance <= self.waypoint_tolerance:
-            self.waypoint_index += 1
-            self.stop()
-
-            self.get_logger().info(
-                "Reached waypoint "
-                f"{self.waypoint_index}/{len(self.waypoints)}"
-            )
-
-            if self.waypoint_index == len(self.waypoints):
-                self.get_logger().info("All waypoints reached")
-
-            return
-
-        orientation = self.pose.pose.orientation    #type: ignore
-
-        try:
-            forward = rotate_vector(
-                self.forward_axis,
-                (
-                    orientation.x,
-                    orientation.y,
-                    orientation.z,
-                    orientation.w,
-                ),
-            )
-
-            angle_error = planar_heading_error(
-                forward[0],
-                forward[2],
-                dx,
-                dz,
-            )
-        except ValueError as error:
-            self.stop(str(error))
-            return
-
-        command = Twist()
-
-        command.angular.z = clamp(
-            self.angular_velocity_sign
-            * self.angular_gain
-            * angle_error,
-            self.max_angular_speed,
-        )
-
-        if abs(angle_error) < self.turn_in_place_angle:
-            command.linear.x = min(
-                self.max_linear_speed,
-                self.linear_gain * distance,
-            ) * max(0.0, math.cos(angle_error))
-
-        self.cmd_vel_pub.publish(command)
-        self.last_stop_reason = None
 
 
 def main(args=None):
     rclpy.init(args=args)
-    node = TurtleBotControllerNode()
+    node = DriverPIDNode()
 
     try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        node.stop()
-        node.destroy_node()
+        while rclpy.ok() and not node.shutdown_signal:
+            rclpy.spin_once(node, timeout_sec=(1 / node.rate))
 
-        if rclpy.ok():
-            rclpy.shutdown()
+    except KeyboardInterrupt:
+        print("Stopping Node")
+    finally:
+        node.destroy_node()
 
 
 if __name__ == "__main__":
