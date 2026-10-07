@@ -1,139 +1,139 @@
 #!/usr/bin/env python3
-from rclpy.node import Node
+"""Drive through waypoints expressed in the arena marker frame."""
+
+from math import atan2, cos, hypot, isfinite, radians, sin
+from time import monotonic
+
 import rclpy
-from nav_msgs.msg import Odometry
-from geometry_msgs.msg import Twist, PoseStamped, TransformStamped
+from geometry_msgs.msg import PoseStamped, Twist
+from rclpy.node import Node
+from rclpy.signals import SignalHandlerOptions
 from tf_transformations import euler_from_quaternion
-from math import pi, atan2
-from ament_index_python.packages import get_package_share_directory
-
-
-class PID:
-    def __init__(self, Kp=0.1, Ki=0.01, Kd=0.1):
-        self.Kp = Kp
-        self.Ki = Ki
-        self.Kd = Kd
-
-        self.dt = 0.1
-        self.sum = 0
-
-    def compute(self, de):
-        P = self.Kp * de
-        self.sum = self.sum + de * self.dt
-        I = self.Ki * self.sum
-        D = self.Kd * (de / self.dt)
-
-        return P + I + D
 
 
 class DriverPIDNode(Node):
     def __init__(self):
-        super().__init__(node_name="driver_pid_node")
+        super().__init__("driver_pid_node")
 
-        self.rel_pose_topic = str(self.declare_parameter('relative_pose_topic', '').value)
-        self.drive_topic = str(self.declare_parameter('drive_topic', '').value)
-        self.rate = int(self.declare_parameter('pose_rate', 15).value) # type: ignore
-        
-        self.create_subscription(
-            msg_type=PoseStamped,
-            topic=self.rel_pose_topic,
-            qos_profile=10,
-            callback=self.listen_pose,
-        )
+        pose_topic = str(self.declare_parameter("relative_pose_topic", "/relative_pose/ground_truth").value)
+        drive_topic = str(self.declare_parameter("drive_topic", "/cmd_vel").value)
+        self.rate = float(self.declare_parameter("pose_rate", 15).value)    #type: ignore
+        self.pose_timeout = float(self.declare_parameter("pose_timeout_s", 1.0).value)  #type: ignore
+        self.arena_frame = str(self.declare_parameter("arena_frame", "arena1_marker").value)
 
-        self.pub_ = self.create_publisher(msg_type=Twist, topic=self.drive_topic, qos_profile=10)
-        self.control_timer_ = self.create_timer(1 / self.rate, self.control_loop)
+        # Angle from marker +X to robot forward, about marker +Z.
+        self.yaw_offset = float(self.declare_parameter("heading_offset_rad", 0.0).value)    #type: ignore
 
-        self.log_ = self.get_logger()
-        self.log_.info("Created the node to drive bot")
+        if not all(isfinite(v) and v > 0
+                   for v in (self.rate, self.pose_timeout)):
+            raise ValueError("pose_rate and pose_timeout_s must be positive")
+        if not isfinite(self.yaw_offset):
+            raise ValueError("heading_offset_rad must be finite")
 
-        self.bot_yaw = 0
-        self.bot_loc = (0, 0)
-        self.shutdown_signal = False
-        self.DIST_THRESHOLD = 0.05  # 5 cm tolerance
-        self.ROT_THRESHOLD = 20 * (pi / 360)  # 10 degree tolerance
-        self.LIN_SPEED = 0.1
-        self.ANG_SPEED = 0.1
-
-        # Run once method
+        # Metres in the arena frame; visit in this order.
+        self.goals = [
+            (0.5, 0.5),
+            (0.5, -0.5),
+            (-0.5, -0.5),
+            (-0.5, 0.5),
+            (0.5, 0.5)
+        ]
         self.goal_idx = 0
-        self.goals = [(1.0, 1.0), (1.0, -1.0), (-1.0, 1.0), (-1.0, -1.0)]
-        self.ang_pid = PID()
-        self.dist_pid = PID()
+        self.bot_loc = (0, 0)
+        self.bot_yaw = 0.0
+        self.last_pose_time = None
 
+        self.dist_tolerance = 0.10
+        self.heading_tolerance = radians(10)
+        self.max_linear_speed = 0.10   # m/s
+        self.max_angular_speed = 0.1  # rad/s
+        self.linear_kp = 0.5
+        self.angular_kp = 2.0
+        self.shutdown_signal = False
 
-    def read_goals(self):
-        pkg_path = get_package_share_directory('mpose_consumer')
-        goal_txt_path = f'{pkg_path}/config/goals.txt'
-        goals = []
-
-        with open(goal_txt_path, 'r') as f:
-            for line in f.readlines():
-                x, y = line.split(' ')
-                goals.append((float(x), float(y)))
-
-        self.log_.info(f'Goals to move to: {goals}')
-        return goals
-
-
-    def listen_pose(self, msg):
-        quats = msg.pose.orientation
-        trans = msg.pose.position
-
-        self.bot_loc = (trans.x, trans.y)
-        # xyzw quaternion order
-        _, _, self.bot_yaw = euler_from_quaternion([quats.x, quats.y, quats.z, quats.w])
+        self.pub_ = self.create_publisher(Twist, drive_topic, 10)
+        self.pose_sub = self.create_subscription(
+            PoseStamped, pose_topic, self.listen_pose, 1)
+        self.control_timer_ = self.create_timer(
+            1.0 / self.rate, self.control_loop)
 
 
     def publish_stop(self):
-        msg = Twist()
-        self.pub_.publish(msg)
+        self.pub_.publish(Twist())
 
 
-    def calc_heading(self, goal):
-        dy = goal[1] - self.bot_loc[1]
-        dx = goal[0] - self.bot_loc[0]
+    def listen_pose(self, msg):
+        p, q = msg.pose.position, msg.pose.orientation
+        values = (p.x, p.y, p.z, q.x, q.y, q.z, q.w)
+        norm = hypot(q.x, q.y, q.z, q.w)
 
-        ang = atan2(dy, dx)
-        return abs(ang - self.bot_yaw)
+        stamp = msg.header.stamp
+        pose_time = stamp.sec + stamp.nanosec * 1e-9
+        age = self.get_clock().now().nanoseconds * 1e-9 - pose_time
 
+        if (msg.header.frame_id != self.arena_frame
+                or not all(isfinite(v) for v in values)
+                or norm < 1e-9
+                or not -0.1 <= age <= self.pose_timeout):
+            self.last_pose_time = None
+            self.publish_stop()
+            return
 
-    def calc_dist(self, goal):
-        dy = goal[1] - self.bot_loc[1]
-        dx = goal[0] - self.bot_loc[0]
-        return (dy**2 + dx**2) ** 0.5
+        _, _, yaw = euler_from_quaternion(
+            [q.x / norm, q.y / norm, q.z / norm, q.w / norm])
+
+        self.bot_loc = (p.x, p.y)
+        self.bot_yaw = yaw + self.yaw_offset
+        self.last_pose_time = monotonic()
 
 
     def control_loop(self):
-        current_goal = self.goals[self.goal_idx]
-        move_msg = Twist()
-        ang_error = self.calc_heading(current_goal)
-        dist_error = self.calc_dist(current_goal)
-
-        if ang_error > self.ROT_THRESHOLD:
-            # tilt
-            self.log_.info(f"Angle error: {ang_error}")
-            ang_vel = self.ang_pid.compute(ang_error)
-            move_msg.angular.z = ang_vel
-        elif dist_error > self.DIST_THRESHOLD:
-            # move
-            self.log_.info(f"Dist error: {dist_error}")
-            lin_vel = self.dist_pid.compute(dist_error)
-            move_msg.linear.x = lin_vel
-        else:
-            # reached
-            self.log_.info(f"Reached goal {current_goal}, moving to next")
+        if self.shutdown_signal:
             self.publish_stop()
-            self.goal_idx += 1
+            return
 
-        self.pub_.publish(move_msg)
+        if (self.last_pose_time is None or monotonic() - self.last_pose_time > self.pose_timeout):
+            self.publish_stop()
+            return
 
-        if self.goal_idx >= len(self.goals):  # type: ignore
+        if self.goal_idx >= len(self.goals):
+            self.publish_stop()
             self.shutdown_signal = True
-            self.publish_stop()
-            self.log_.info("Reached all goals")
             self.control_timer_.cancel()
             return
+
+        goal = self.goals[self.goal_idx]
+        dx = goal[0] - self.bot_loc[0]
+        dy = goal[1] - self.bot_loc[1]
+        distance = hypot(dx, dy)
+
+        # Check arrival first: waypoints do not specify final orientation.
+        if distance <= self.dist_tolerance:
+            self.publish_stop()
+            self.get_logger().info(
+                f"Reached waypoint {self.goal_idx + 1}: {goal}")
+            self.goal_idx += 1
+
+            if self.goal_idx == len(self.goals):
+                self.shutdown_signal = True
+                self.control_timer_.cancel()
+                self.get_logger().info("Reached all waypoints")
+            return
+
+        error = atan2(dy, dx) - self.bot_yaw
+        error = atan2(sin(error), cos(error))  # Signed shortest turn.
+
+        command = Twist()
+        command.angular.z = max(
+            -self.max_angular_speed,
+            min(self.max_angular_speed, self.angular_kp * error))
+
+        # Turn in place until aligned; keep steering while moving.
+        if abs(error) <= self.heading_tolerance:
+            command.linear.x = min(
+                self.max_linear_speed, self.linear_kp * distance)
+
+        self.pub_.publish(command)
 
 
 def main(args=None):
@@ -142,12 +142,16 @@ def main(args=None):
 
     try:
         while rclpy.ok() and not node.shutdown_signal:
-            rclpy.spin_once(node, timeout_sec=(1 / node.rate))
-
+            rclpy.spin_once(node, timeout_sec=1.0 / node.rate)
     except KeyboardInterrupt:
-        print("Stopping Node")
+        pass
     finally:
-        node.destroy_node()
+        if node is not None:
+            if rclpy.ok():
+                node.publish_stop()
+            node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":

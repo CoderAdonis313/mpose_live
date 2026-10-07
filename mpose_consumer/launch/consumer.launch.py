@@ -64,7 +64,7 @@ def generate_launch_description():
         parameters=[
             {
                 "use_sim_time": False, 
-                "relative_pose_topic": '/relative_pose/ground_truth',
+                "relative_pose_topic": '/relative_pose/estimated',
                 "pose_rate": 15,
                 "drive_topic": '/cmd_vel'
             }
