@@ -8,12 +8,7 @@ def generate_launch_description():
     vicon_prefix = "/vicon"
     mpose_prefix = "/mpose/poses"
     vicon_msg_type = "TransformStamped"
-
-    robot_vicon_topic = "/vicon/MARKER_YFORWARD/MARKER_YFORWARD"
-    mpose_error_topic = "/mpose/error"
-    cam_vicon_topic = "/vicon/ZED_CAM/ZED_CAM"
-    gt_pose_topic = "/gt/pose"
-    mpose_terror_topic = "/mpose/terror"
+    bot_topic = '/TB4/cmd_vel'
 
     gt_node = Node(
         package="mpose_consumer",
@@ -37,7 +32,6 @@ def generate_launch_description():
         emulate_tty=True,
     )
 
-
     relative_pose_node = Node(
         package="mpose_consumer",
         executable="rel_pose_node",
@@ -45,17 +39,20 @@ def generate_launch_description():
         parameters=[
             {
                 "arena_marker_name": "arena1_marker",
-                "bot_marker_name": "bot1_marker",
+                "bot_marker_name": "bot2_marker",
                 "vicon_topic_prefix": vicon_prefix,
                 "mpose_topic_prefix": mpose_prefix,
                 "vicon_msg_type": vicon_msg_type,
                 "estimated_output_topic": "/relative_pose/estimated",
                 "ground_truth_output_topic": "/relative_pose/ground_truth",
+                'dist_tolerance': 0.05,
+                'angle_tolerance': 10,
+                'max_lin_speed': 0.1,
+                'max_ang_speed': 0.1,
                 "sync_tolerance_s": 0.01,
             }
         ],
     )
-
 
     controller_node = Node(
         package="mpose_consumer",
@@ -64,14 +61,16 @@ def generate_launch_description():
         parameters=[
             {
                 "use_sim_time": False, 
-                "relative_pose_topic": '/relative_pose/estimated',
+                # Choose from 'vicon' or 'mpose'
+                "control_mode": 'mpose',
+                "estimated_pose_topic": "/relative_pose/estimated",
+                "ground_truth_pose_topic": "/relative_pose/ground_truth",
                 "pose_rate": 15,
-                "drive_topic": '/cmd_vel'
+                "drive_topic": bot_topic
             }
         ],
         emulate_tty=True,
     )
-
 
     return LaunchDescription(
         [

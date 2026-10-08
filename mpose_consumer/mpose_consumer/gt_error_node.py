@@ -10,6 +10,7 @@ from geometry_msgs.msg import PoseStamped, TransformStamped
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from scipy.spatial.transform import Rotation, Slerp
+from std_msgs.msg import Float64
 
 
 def stamp_ns(stamp):
@@ -150,6 +151,9 @@ class GTErrorNode(Node):
         bot_pattern = str(self.declare_parameter("bot_marker_pattern", r"^bot.*_marker$").value)
         arena_pattern = str(self.declare_parameter("arena_marker_pattern", r"^arena.*_marker$").value)
         self.vicon_msg_type = str(self.declare_parameter('vicon_msg_type', "TransformStamped").value)
+        self.trans_error_topic = str(self.declare_parameter("trans_error_topic", "/pose_error/translation").value).rstrip("/")
+        self.rot_error_topic = str(self.declare_parameter("rot_error_topic", "/pose_error/rotation").value).rstrip("/")
+        self.pose_loss_topic = str(self.declare_parameter("pose_loss_topic", "/pose_error/loss").value).rstrip("/")
 
         # Optional exact arena name. Leave empty when the
         # arena pattern matches only one marker.
@@ -157,6 +161,9 @@ class GTErrorNode(Node):
         history_seconds = float(self.declare_parameter("vicon_history_s", 10.0).value)  # type: ignore
         maximum_gap_seconds = float(self.declare_parameter("max_vicon_gap_s", 0.05,).value)  # type: ignore
         discovery_period = float(self.declare_parameter("discovery_period_s", 1.0,).value)  # type: ignore
+        self.beta = float(self.declare_parameter('beta', 1.0).value)    #type: ignore
+
+        assert self.beta > 0
 
         if not math.isfinite(history_seconds) or history_seconds <= 0:
             raise ValueError("vicon_history_s must be positive")
@@ -187,14 +194,27 @@ class GTErrorNode(Node):
 
         self.discovery_warning_shown = False
 
-        self.vicon_qos = QoSProfile(
-            depth=1000,
-            reliability=(ReliabilityPolicy.BEST_EFFORT),
-        )
+        self.vicon_qos = QoSProfile(depth=1000, reliability=(ReliabilityPolicy.BEST_EFFORT))
 
         self.create_timer(
             discovery_period,
             self.discover_topics,
+        )
+
+        self.trans_pub_ = self.create_publisher(
+            msg_type=Float64,
+            topic=self.trans_error_topic,
+            qos_profile=10,
+        )
+        self.rot_pub_ = self.create_publisher(
+            msg_type=Float64,
+            topic=self.rot_error_topic,
+            qos_profile=10,
+        )
+        self.loss_pub_ = self.create_publisher(
+            msg_type=Float64,
+            topic=self.pose_loss_topic,
+            qos_profile=10,
         )
 
         # Try immediately instead of waiting for the first timer.
@@ -207,6 +227,49 @@ class GTErrorNode(Node):
 
     def is_marker_name(self, label):
         return bool(self.bot_pattern.fullmatch(label) or self.arena_pattern.fullmatch(label))
+
+
+    def pose_loss(self, estimated, ground_truth):
+        est_quats = Rotation.from_matrix(estimated[:3, :3]).as_quat()
+        gt_quats = Rotation.from_matrix(ground_truth[:3, :3]).as_quat()
+        diff_quats = np.sum((est_quats - gt_quats)**2)
+        sum_quats = np.sum((est_quats + gt_quats)**2)
+        
+        L_rot = np.sqrt(min(diff_quats, sum_quats))
+        L_trans = np.sqrt(np.sum((estimated[:3, 3] - ground_truth[:3, 3])**2))
+        return L_trans + self.beta * L_rot
+
+
+    def generate_pose_msg(self, t_error, r_error, loss):
+        t_error_msg = Float64()
+        t_error_msg.data = t_error
+        self.trans_pub_.publish(t_error_msg)
+
+        r_error_msg = Float64()
+        r_error_msg.data = r_error
+        self.rot_pub_.publish(r_error_msg)
+    
+        loss_msg = Float64()
+        loss_msg.data = loss
+        self.loss_pub_.publish(loss_msg)
+    
+
+    def pose_error_calculation(self, T_ground_truth, T_estimated):
+        translation_delta = T_estimated[:3, 3] - T_ground_truth[:3, 3]
+        translation_error_m = float(np.linalg.norm(translation_delta))
+        rotation_error_deg = rotation_error_degrees(T_estimated, T_ground_truth)
+        pose_loss = self.pose_loss(T_estimated, T_ground_truth)
+
+        self.generate_pose_msg(
+            translation_error_m, 
+            rotation_error_deg, 
+            pose_loss,
+        )
+
+        self.get_logger().info(f"Error stats:\n" \
+            f"Translation error: {translation_error_m}\n"\
+            f"Rotation error: {rotation_error_deg} \n"\
+            f"Pose loss: {pose_loss}\n")
 
 
     @staticmethod
@@ -419,14 +482,10 @@ class GTErrorNode(Node):
             if bot_camera_frame != camera_frame:
                 continue
 
-            if bot_timestamp <= self.last_evaluated.get(
-                bot_label,
-                -1,
-            ):
+            if bot_timestamp <= self.last_evaluated.get(bot_label, -1,):
                 continue
 
             arena_parent = self.vicon_parent_frames.get(arena_label)
-
             bot_parent = self.vicon_parent_frames.get(bot_label)
 
             if arena_parent is None or bot_parent is None or arena_parent != bot_parent:
@@ -449,9 +508,7 @@ class GTErrorNode(Node):
 
             except ValueError as error:
                 self.get_logger().warning(f"Cannot match {bot_label!r} " f"at {bot_timestamp}: {error}")
-
                 self.last_evaluated[bot_label] = bot_timestamp
-
                 continue
 
             estimated_arena_T_bot = relative_pose(
@@ -463,26 +520,13 @@ class GTErrorNode(Node):
                 world_T_arena,
                 world_T_bot,
             )
-
-            translation_delta = estimated_arena_T_bot[:3, 3] - ground_truth_arena_T_bot[:3, 3]
-
-            translation_error_m = float(np.linalg.norm(translation_delta))
-
-            rotation_error_deg = rotation_error_degrees(
-                estimated_arena_T_bot,
-                ground_truth_arena_T_bot,
-            )
-
-            self.last_evaluated[bot_label] = bot_timestamp
-
             self.get_logger().info(
                 f"{bot_label} wrt "
                 f"{arena_label}: "
-                f"translation error="
-                f"{translation_error_m * 100.0:.2f} cm, "
-                f"rotation error="
-                f"{rotation_error_deg:.2f} deg"
             )
+
+            self.pose_error_calculation(ground_truth_arena_T_bot, estimated_arena_T_bot)
+            self.last_evaluated[bot_label] = bot_timestamp
 
 
 def main(args=None):

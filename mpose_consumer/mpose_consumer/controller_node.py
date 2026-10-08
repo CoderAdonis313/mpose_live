@@ -15,7 +15,13 @@ class DriverPIDNode(Node):
     def __init__(self):
         super().__init__("driver_pid_node")
 
-        pose_topic = str(self.declare_parameter("relative_pose_topic", "/relative_pose/ground_truth").value)
+        est_pose_topic = str(self.declare_parameter("estimated_pose_topic", "").value)
+        gt_pose_topic = str(self.declare_parameter("ground_truth_pose_topic", "").value)
+        control_mode = str(self.declare_parameter("control_mode", "").value)
+        pose_topic = gt_pose_topic if control_mode == 'vicon' else est_pose_topic
+
+        assert control_mode in ['vicon', 'mpose']
+
         drive_topic = str(self.declare_parameter("drive_topic", "/cmd_vel").value)
         self.rate = float(self.declare_parameter("pose_rate", 15).value)    #type: ignore
         self.pose_timeout = float(self.declare_parameter("pose_timeout_s", 1.0).value)  #type: ignore
@@ -43,10 +49,10 @@ class DriverPIDNode(Node):
         self.bot_yaw = 0.0
         self.last_pose_time = None
 
-        self.dist_tolerance = 0.10
-        self.heading_tolerance = radians(10)
-        self.max_linear_speed = 0.10   # m/s
-        self.max_angular_speed = 0.1  # rad/s
+        self.dist_tolerance = float(self.declare_parameter('dist_tolerance', '0.1').value)  # type: ignore
+        self.heading_tolerance = radians(float(self.declare_parameter('angle_tolerance', '10').value))  # type: ignore
+        self.max_linear_speed = float(self.declare_parameter('max_lin_speed', '0.1').value)   # m/s # type: ignore
+        self.max_angular_speed = float(float(self.declare_parameter('max_ang_speed', '0.1').value)) # rad/s # type: ignore
         self.linear_kp = 0.5
         self.angular_kp = 2.0
         self.shutdown_signal = False
