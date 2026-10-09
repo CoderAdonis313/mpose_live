@@ -39,7 +39,7 @@ def generate_launch_description():
         parameters=[
             {
                 "arena_marker_name": "arena1_marker",
-                "bot_marker_name": "bot2_marker",
+                "bot_marker_name": "bot1_marker",
                 "vicon_topic_prefix": vicon_prefix,
                 "mpose_topic_prefix": mpose_prefix,
                 "vicon_msg_type": vicon_msg_type,
