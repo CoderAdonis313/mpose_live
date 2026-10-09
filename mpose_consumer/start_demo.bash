@@ -13,6 +13,12 @@ ros2 bag record \
   # --topics \
   #   /mpose/error 
 
+############################################################ Summarize the ros bag ####################################################
+echo "INFO: Summarizing the rosbag: $BAG_NAME"
+python3 analyze_pose_bag.py "rosbags/$BAG_NAME/*.db3"\
+ --beta 0.1 \
+ --output summary.json
+
 
 ############################################################ Play the ros bag #########################################################
 # ros2 bag play "rosbags/$BAG_NAME"
