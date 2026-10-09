@@ -1,5 +1,5 @@
-source /opt/ros/humble/setup.bash
-source /home/abhi/dev/ros2_ws/install/setup.bash
+source /opt/ros/jazzy/setup.bash
+source /home/abhi/Dev/ros2_codes/research_ws/install/setup.bash
 
 ros2 launch mpose_consumer consumer.launch.py
 
