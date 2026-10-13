@@ -7,7 +7,7 @@ def generate_launch_description():
     mpose_status_topic = "/mpose/status"
     vicon_prefix = "/vicon"
     mpose_prefix = "/mpose/poses"
-    vicon_msg_type = "TransformStamped"
+    vicon_msg_type = "PoseStamped"
     bot_topic = '/TB4/cmd_vel'
 
     gt_node = Node(

@@ -1,0 +1,112 @@
+{
+  "storage_identifier": "sqlite3",
+  "bag_files": [
+    "rosbags/mpose_run_1791591666/mpose_run_1791591666_0.db3"
+  ],
+  "estimated_topic": "/relative_pose/estimated",
+  "ground_truth_topic": "/relative_pose/ground_truth",
+  "frame_id": "arena1_marker",
+  "timestamp_source": "header",
+  "matching_method": "interpolate",
+  "maximum_sample_distance_ms": 100.0,
+  "estimate_time_offset_ms": 0.0,
+  "beta": 0.1,
+  "pose_loss_definition": "||t_est-t_gt||^2 + beta * min(||q_est-q_gt||^2, ||q_est+q_gt||^2), normalized quaternions",
+  "estimated_messages": 2491,
+  "ground_truth_messages": 8356,
+  "invalid_estimated_messages": 0,
+  "invalid_ground_truth_messages": 0,
+  "evaluated_pairs": 2393,
+  "skipped": {
+    "outside_ground_truth_range": 0,
+    "gap_too_large": 98
+  },
+  "estimated_span_seconds": 170.274266881,
+  "translation_error_m": {
+    "mean": 0.13140063080323,
+    "median": 0.0946180609229,
+    "p90": 0.3327507866339678,
+    "rmse": 0.17925764314911088,
+    "minimum": 0.021885906647485628,
+    "maximum": 0.6275452194430922
+  },
+  "rotation_error_deg": {
+    "mean": 18.815244417825056,
+    "median": 10.128500440728605,
+    "p90": 57.820397277722265,
+    "rmse": 33.01502906329927,
+    "minimum": 0.9646106068282316,
+    "maximum": 179.88916084778012
+  },
+  "squared_translation_error_m2": {
+    "mean": 0.03213330262737398,
+    "median": 0.008952577452809616,
+    "p90": 0.1107233698764467,
+    "rmse": 0.07469839140023508,
+    "minimum": 0.00047899290978245556,
+    "maximum": 0.39381300244587863
+  },
+  "squared_quaternion_error": {
+    "mean": 0.07504061614854586,
+    "median": 0.007807325524554157,
+    "p90": 0.24924303517244145,
+    "rmse": 0.26883212590288214,
+    "minimum": 7.085920011693648e-05,
+    "maximum": 1.998065492155292
+  },
+  "pose_loss": {
+    "mean": 0.039637364242228565,
+    "median": 0.009408016848242896,
+    "p90": 0.15474247195433713,
+    "rmse": 0.09245992526872153,
+    "minimum": 0.001090056785188601,
+    "maximum": 0.4475296410972467
+  },
+  "ground_truth_sample_distance_ms": {
+    "mean": 20.007616273715005,
+    "median": 15.71733,
+    "p90": 28.351831600000015,
+    "rmse": 25.84085115043158,
+    "minimum": 2.081739,
+    "maximum": 99.781531
+  },
+  "mean_signed_delta_xyz_m": [
+    0.03967752043932977,
+    -0.05658365859586102,
+    0.0034786738257592824
+  ],
+  "estimated_xyz_ranges_m": [
+    [
+      -0.5227043782194538,
+      0.5605263028738562
+    ],
+    [
+      -0.8806366610415399,
+      0.6288783783098977
+    ],
+    [
+      -0.23193097063573687,
+      0.2725941760048338
+    ]
+  ],
+  "matched_ground_truth_xyz_ranges_m": [
+    [
+      -0.5442014076105817,
+      0.49871072544389283
+    ],
+    [
+      -0.4847136572987991,
+      0.5605401891273487
+    ],
+    [
+      0.0781091061447862,
+      0.138649073506811
+    ]
+  ],
+  "caveats": [
+    "Published poses only; missing detections are not assigned a loss.",
+    "Identical frame_id does not prove matching physical origins or axes.",
+    "No offset or rotation is fitted to reduce the reported errors.",
+    "Header clocks must be synchronized; bag timestamps are receipt times."
+  ]
+}
