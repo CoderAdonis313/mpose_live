@@ -15,9 +15,9 @@ ros2 bag record \
 
 ############################################################ Summarize the ros bag ####################################################
 echo "INFO: Summarizing the rosbag: $BAG_NAME"
-python3 analyze_pose_bag.py "rosbags/$BAG_NAME"\
+python3 mpose_consumer/analyze_pose_bag.py "rosbags/$BAG_NAME"\
  --beta 0.1 \
- --output summary.json
+ --output "summary_$BAG_NAME.json"
 
 
 ############################################################ Play the ros bag #########################################################

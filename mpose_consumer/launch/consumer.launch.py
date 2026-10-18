@@ -7,8 +7,8 @@ def generate_launch_description():
     mpose_status_topic = "/mpose/status"
     vicon_prefix = "/vicon"
     mpose_prefix = "/mpose/poses"
-    vicon_msg_type = "PoseStamped"
-    bot_topic = '/TB3/cmd_vel'
+    vicon_msg_type = "TransformStamped"
+    bot_topic = '/TB1/cmd_vel'
 
     gt_node = Node(
         package="mpose_consumer",
@@ -39,7 +39,7 @@ def generate_launch_description():
         parameters=[
             {
                 "arena_marker_name": "arena1_marker",
-                "bot_marker_name": "bot3_marker",
+                "bot_marker_name": "bot1_marker",
                 "vicon_topic_prefix": vicon_prefix,
                 "mpose_topic_prefix": mpose_prefix,
                 "vicon_msg_type": vicon_msg_type,
@@ -62,7 +62,7 @@ def generate_launch_description():
             {
                 "use_sim_time": False, 
                 # Choose from 'vicon' or 'mpose'
-                "control_mode": 'vicon',
+                "control_mode": 'mpose',
                 "estimated_pose_topic": "/relative_pose/estimated",
                 "ground_truth_pose_topic": "/relative_pose/ground_truth",
                 "pose_rate": 15,
