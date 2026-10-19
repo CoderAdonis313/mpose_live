@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
-"""Publish the bot pose relative to the arena from MegaPose and Vicon."""
+"""Publish each bot marker's pose relative to one discovered arena marker."""
 
+import math
+import re
+from functools import partial
 import numpy as np
 import rclpy
 from geometry_msgs.msg import PoseStamped, TransformStamped
@@ -10,47 +13,32 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy
 from scipy.spatial.transform import Rotation
 
 
-def pose_to_matrix(message, msg_type):
-    position = None
-    orientation = None
-
-    if msg_type == PoseStamped:
+def pose_to_matrix(message):
+    if isinstance(message, PoseStamped):
         position = message.pose.position
         orientation = message.pose.orientation
-    elif msg_type == TransformStamped:
+    else:
         position = message.transform.translation
         orientation = message.transform.rotation
 
+    translation = np.array([position.x, position.y, position.z], dtype=float)
     quaternion = np.array(
-        [
-            orientation.x,
-            orientation.y,
-            orientation.z,
-            orientation.w,
-        ],
+        [orientation.x, orientation.y, orientation.z, orientation.w],
         dtype=float,
-    )  # type: ignore
+    )
 
-    if np.linalg.norm(quaternion) < 1e-9:
-        raise ValueError("Invalid zero-length quaternion")
+    if not np.isfinite(translation).all() or not np.isfinite(quaternion).all() or np.linalg.norm(quaternion) < 1e-9:
+        raise ValueError("Pose contains invalid values")
 
     quaternion /= np.linalg.norm(quaternion)
     matrix = np.eye(4)
     matrix[:3, :3] = Rotation.from_quat(quaternion).as_matrix()
-    matrix[:3, 3] = [
-        position.x,
-        position.y,
-        position.z,
-    ]  # type: ignore
-
-    if not np.isfinite(matrix).all():
-        raise ValueError("Pose contains non-finite values")
+    matrix[:3, 3] = translation
     return matrix
 
 
 def matrix_to_pose(matrix, stamp, frame_id):
-    quaternion = Rotation.from_matrix(matrix[:3, :3]).as_quat()  # type: ignore
-
+    quaternion = Rotation.from_matrix(matrix[:3, :3]).as_quat()
     message = PoseStamped()
     message.header.stamp = stamp
     message.header.frame_id = frame_id
@@ -58,7 +46,6 @@ def matrix_to_pose(matrix, stamp, frame_id):
     message.pose.position.x = float(matrix[0, 3])
     message.pose.position.y = float(matrix[1, 3])
     message.pose.position.z = float(matrix[2, 3])
-
     message.pose.orientation.x = float(quaternion[0])
     message.pose.orientation.y = float(quaternion[1])
     message.pose.orientation.z = float(quaternion[2])
@@ -70,144 +57,258 @@ class RelativePoseNode(Node):
     def __init__(self):
         super().__init__("relative_pose_node")
 
-        self.arena_name = str(self.declare_parameter("arena_marker_name", "").value)
-        self.bot_name = str(self.declare_parameter("bot_marker_name", "").value)
-        mpose_prefix = str(self.declare_parameter("mpose_topic_prefix", "/mpose/poses",).value).rstrip("/")
-        vicon_prefix = str(self.declare_parameter("vicon_topic_prefix", "").value)
-        vicon_msg_type = str(self.declare_parameter("vicon_msg_type", "TransformStamped").value)
-
-        if vicon_msg_type == "TransformStamped":
-            self.vicon_msg_type = TransformStamped
-        elif vicon_msg_type == "PoseStamped":
-            self.vicon_msg_type = PoseStamped
-
-        estimated_topic = str(self.declare_parameter("estimated_output_topic", "",).value)
-        ground_truth_topic = str(self.declare_parameter("ground_truth_output_topic", "",).value)
-        sync_tolerance = float(self.declare_parameter("sync_tolerance_s", 0.01,).value)  # type: ignore
-
-        mpose_arena_topic = f"{mpose_prefix}/{self.arena_name}"
-        mpose_bot_topic = f"{mpose_prefix}/{self.bot_name}"
-
-        arena_vicon_name = self.arena_name.upper()
-        bot_vicon_name = self.bot_name.upper()
-
-        vicon_arena_topic = f"{vicon_prefix}/" f"{arena_vicon_name}/" f"{arena_vicon_name}"
-        vicon_bot_topic = f"{vicon_prefix}/" f"{bot_vicon_name}/" f"{bot_vicon_name}"
-
-        self.estimated_publisher = self.create_publisher(
-            PoseStamped,
-            estimated_topic,
-            10,
+        self.bot_pattern = re.compile(
+            str(self.declare_parameter("bot_marker_pattern", r"^bot.*_marker$").value),
+            re.IGNORECASE,
+        )
+        self.arena_pattern = re.compile(
+            str(self.declare_parameter("arena_marker_pattern", r"^arena.*_marker$").value),
+            re.IGNORECASE,
         )
 
-        self.ground_truth_publisher = self.create_publisher(
-            PoseStamped,
-            ground_truth_topic,
-            10,
-        )
+        self.input_prefixes = {
+            "estimated": str(self.declare_parameter("mpose_topic_prefix", "/mpose/poses").value).rstrip("/"),
+            "ground_truth": str(self.declare_parameter("vicon_topic_prefix", "/vicon").value).rstrip("/"),
+        }
 
-        # MegaPose topics are published reliably.
-        self.mpose_arena_sub = Subscriber(
-            self,
-            PoseStamped,
-            mpose_arena_topic,
-            qos_profile=10,
-        )
+        # These parameters are now prefixes; the bot label is appended.
+        self.output_prefixes = {
+            "estimated": str(self.declare_parameter("estimated_output_topic", "/relative_pose/estimated").value).rstrip("/"),
+            "ground_truth": str(self.declare_parameter("ground_truth_output_topic", "/relative_pose/ground_truth").value).rstrip("/"),
+        }
 
-        self.mpose_bot_sub = Subscriber(
-            self,
-            PoseStamped,
-            mpose_bot_topic,
-            qos_profile=10,
-        )
+        vicon_type = str(self.declare_parameter("vicon_msg_type", "TransformStamped").value)
+        if vicon_type not in ("PoseStamped", "TransformStamped"):
+            raise ValueError("vicon_msg_type must be PoseStamped or TransformStamped")
 
-        self.mpose_sync = ApproximateTimeSynchronizer(
+        self.message_types = {
+            "estimated": PoseStamped,
+            "ground_truth": (PoseStamped if vicon_type == "PoseStamped" else TransformStamped),
+        }
+        self.ros_types = {
+            "estimated": "geometry_msgs/msg/PoseStamped",
+            "ground_truth": f"geometry_msgs/msg/{vicon_type}",
+        }
+
+        self.sync_tolerance = float(self.declare_parameter("sync_tolerance_s", 0.01).value)
+        discovery_period = float(self.declare_parameter("discovery_period_s", 1.0).value)
+
+        for name, value in (
+            ("sync_tolerance_s", self.sync_tolerance),
+            ("discovery_period_s", discovery_period),
+        ):
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError(f"{name} must be finite and positive")
+
+        self.qos = {
+            "estimated": QoSProfile(depth=30),
+            "ground_truth": QoSProfile(
+                depth=100,
+                reliability=ReliabilityPolicy.BEST_EFFORT,
+            ),
+        }
+        self.queue_sizes = {"estimated": 30, "ground_truth": 100}
+
+        self.arena_name = None
+        self.last_arena_candidates = None
+        self.active_pairs = set()
+
+        # Shared subscriptions: (source, topic) -> Subscriber.
+        self.subscribers = {}
+
+        # Independent synchronizers: (source, arena topic, bot topic).
+        self.synchronizers = {}
+
+        # (source, bot label) -> PoseStamped publisher.
+        self.pose_publishers = {}
+
+        self.discovery_timer = self.create_timer(discovery_period, self.discover_topics)
+        self.discover_topics()
+
+
+    @staticmethod
+    def marker_name(topic):
+        return topic.rstrip("/").split("/")[-1].lower()
+
+
+    @staticmethod
+    def under_prefix(topic, prefix):
+        return topic.startswith(prefix + "/")
+
+
+    def discover_topics(self):
+        topics = {source: {} for source in self.input_prefixes}
+        ambiguous = set()
+
+        for topic, types in self.get_topic_names_and_types():
+            label = self.marker_name(topic)
+            is_arena = bool(self.arena_pattern.fullmatch(label))
+            is_bot = bool(self.bot_pattern.fullmatch(label))
+
+            if not (is_arena or is_bot):
+                continue
+
+            if is_arena and is_bot:
+                self.get_logger().warning(f"Skipping {label!r}: matches both marker patterns")
+                continue
+
+            for source, prefix in self.input_prefixes.items():
+                if not self.under_prefix(topic, prefix) or self.ros_types[source] not in types:
+                    continue
+
+                # Two distinct topics must not claim the same marker.
+                previous = topics[source].get(label)
+                if previous is not None and previous != topic:
+                    ambiguous.add((source, label))
+
+                topics[source][label] = topic
+
+        for source, label in ambiguous:
+            del topics[source][label]
+            self.get_logger().warning(f"Skipping ambiguous {source} marker {label!r}")
+
+        # Normalize names so ARENA1_MARKER and arena1_marker agree.
+        arena_candidates = {label for markers in topics.values() for label in markers if self.arena_pattern.fullmatch(label)}
+
+        self.active_pairs = set()
+
+        if len(arena_candidates) != 1:
+            self.arena_name = None
+
+            if arena_candidates != self.last_arena_candidates:
+                self.get_logger().warning("Expected one arena marker; found " f"{sorted(arena_candidates)}. Waiting for one arena.")
+
+            self.last_arena_candidates = arena_candidates
+            return
+
+        self.last_arena_candidates = arena_candidates
+        self.arena_name = next(iter(arena_candidates))
+
+        for source, markers in topics.items():
+            arena_topic = markers.get(self.arena_name)
+            if arena_topic is None:
+                continue
+
+            for bot_label, bot_topic in markers.items():
+                if not self.bot_pattern.fullmatch(bot_label):
+                    continue
+
+                pair_key = (source, arena_topic, bot_topic)
+                self.active_pairs.add(pair_key)
+
+                self.ensure_pair(
+                    source,
+                    self.arena_name,
+                    bot_label,
+                    arena_topic,
+                    bot_topic,
+                )
+
+
+    def get_subscriber(self, source, topic):
+        key = (source, topic)
+
+        if key not in self.subscribers:
+            self.subscribers[key] = Subscriber(
+                self,
+                self.message_types[source],
+                topic,
+                qos_profile=self.qos[source],
+            )
+
+        return self.subscribers[key]
+
+
+    def ensure_pair(self, source, arena_label, bot_label, arena_topic, bot_topic):
+        pair_key = (source, arena_topic, bot_topic)
+
+        if pair_key in self.synchronizers:
+            return
+
+        publisher_key = (source, bot_label)
+
+        if publisher_key not in self.pose_publishers:
+            output_topic = f"{self.output_prefixes[source]}/{bot_label}"
+            self.pose_publishers[publisher_key] = self.create_publisher(
+                PoseStamped,
+                output_topic,
+                10,
+            )
+            self.get_logger().info(f"{source}: {bot_label} relative to {arena_label} " f"-> {output_topic}")
+
+        # Each bot has its own queue. One absent bot cannot hold up others.
+        # The shared arena subscription feeds every bot synchronizer.
+        synchronizer = ApproximateTimeSynchronizer(
             [
-                self.mpose_arena_sub,
-                self.mpose_bot_sub,
+                self.get_subscriber(source, arena_topic),
+                self.get_subscriber(source, bot_topic),
             ],
-            queue_size=30,
-            slop=sync_tolerance,
-        )
-        self.mpose_sync.registerCallback(self.on_mpose_pair)
-
-        # BEST_EFFORT works with both live Vicon and bag playback.
-        vicon_qos = QoSProfile(
-            depth=100,
-            reliability=ReliabilityPolicy.BEST_EFFORT,
+            queue_size=self.queue_sizes[source],
+            slop=self.sync_tolerance,
         )
 
-        self.vicon_arena_sub = Subscriber(
-            self,
-            self.vicon_msg_type,
-            vicon_arena_topic,
-            qos_profile=vicon_qos,
+        synchronizer.registerCallback(
+            partial(
+                self.on_pair,
+                source,
+                arena_label,
+                bot_label,
+                pair_key,
+            )
         )
-
-        self.vicon_bot_sub = Subscriber(
-            self,
-            self.vicon_msg_type,
-            vicon_bot_topic,
-            qos_profile=vicon_qos,
-        )
-
-        self.vicon_sync = ApproximateTimeSynchronizer(
-            [
-                self.vicon_arena_sub,
-                self.vicon_bot_sub,
-            ],
-            queue_size=100,
-            slop=sync_tolerance,
-        )
-        self.vicon_sync.registerCallback(self.on_vicon_pair)
-
-        self.get_logger().info(f"Estimated input: {mpose_arena_topic} + " f"{mpose_bot_topic}")
-        self.get_logger().info(f"Ground-truth input: {vicon_arena_topic} + " f"{vicon_bot_topic}")
-        self.get_logger().info(f"Estimated output: {estimated_topic}")
-        self.get_logger().info(f"Ground-truth output: {ground_truth_topic}")
+        self.synchronizers[pair_key] = synchronizer
 
 
-    def calculate_relative_pose(self, arena_message, bot_message, msg_type):
-        if arena_message.header.frame_id != bot_message.header.frame_id:
-            raise ValueError("Arena and bot have different parent frames")
+    def on_pair(
+        self,
+        source,
+        arena_label,
+        bot_label,
+        pair_key,
+        arena_message,
+        bot_message,
+    ):
+        if arena_label != self.arena_name or pair_key not in self.active_pairs:
+            return
 
-        parent_T_arena = pose_to_matrix(arena_message, msg_type)
-        parent_T_bot = pose_to_matrix(bot_message, msg_type)
-
-        # Pose of the bot expressed in the arena frame.
-        return np.linalg.inv(parent_T_arena) @ parent_T_bot
-
-
-    def on_mpose_pair(self, arena_message, bot_message):
         try:
-            arena_T_bot = self.calculate_relative_pose(arena_message, bot_message, PoseStamped)
-            output = matrix_to_pose(arena_T_bot, bot_message.header.stamp, self.arena_name)
-            self.estimated_publisher.publish(output)
+            for message in (arena_message, bot_message):
+                stamp = message.header.stamp
+                if stamp.sec * 1_000_000_000 + stamp.nanosec <= 0 or not message.header.frame_id:
+                    raise ValueError("Missing timestamp or parent frame")
+
+            if arena_message.header.frame_id != bot_message.header.frame_id:
+                raise ValueError("Arena and bot have different parent frames")
+
+            parent_T_arena = pose_to_matrix(arena_message)
+            parent_T_bot = pose_to_matrix(bot_message)
+
+            # Bot pose expressed in the arena marker frame.
+            arena_T_bot = np.linalg.inv(parent_T_arena) @ parent_T_bot
+
+            output = matrix_to_pose(
+                arena_T_bot,
+                bot_message.header.stamp,
+                arena_label,
+            )
+            self.pose_publishers[(source, bot_label)].publish(output)
 
         except (ValueError, np.linalg.LinAlgError) as error:
-            self.get_logger().warning(f"Rejected MegaPose pair: {error}")
-
-
-    def on_vicon_pair(self, arena_message, bot_message):
-        try:
-            arena_T_bot = self.calculate_relative_pose(arena_message, bot_message, self.vicon_msg_type)
-            output = matrix_to_pose(arena_T_bot, bot_message.header.stamp, self.arena_name,)
-            self.ground_truth_publisher.publish(output)
-
-        except (ValueError, np.linalg.LinAlgError) as error:
-            self.get_logger().warning(f"Rejected Vicon pair: {error}")
+            self.get_logger().warning(f"Rejected {source} pair for {bot_label}: {error}")
 
 
 def main(args=None):
     rclpy.init(args=args)
-    node = RelativePoseNode()
+    node = None
 
     try:
+        node = RelativePoseNode()
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
     finally:
-        node.destroy_node()
+        if node is not None:
+            node.destroy_node()
 
         if rclpy.ok():
             rclpy.shutdown()

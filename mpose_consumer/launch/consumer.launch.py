@@ -8,7 +8,9 @@ def generate_launch_description():
     vicon_prefix = "/vicon"
     mpose_prefix = "/mpose/poses"
     vicon_msg_type = "TransformStamped"
-    bot_topic = '/TB1/cmd_vel'
+    bot_topic = "/TB1/cmd_vel"
+    bot_pattern = r"^bot.*_marker$"
+    arena_pattern = f"^arena.*_marker$"
 
     gt_node = Node(
         package="mpose_consumer",
@@ -20,8 +22,8 @@ def generate_launch_description():
                 "mpose_topic_prefix": mpose_prefix,
                 "vicon_topic_prefix": vicon_prefix,
                 "vicon_msg_type": vicon_msg_type,
-                "bot_marker_pattern": r"^bot.*_marker$",
-                "arena_marker_pattern": r"^arena.*_marker$",
+                "bot_marker_pattern": bot_pattern,
+                "arena_marker_pattern": arena_pattern,
                 # Recommended when you have exactly one arena.
                 "arena_marker_name": "arena1_marker",
                 "vicon_history_s": 10.0,
@@ -38,18 +40,15 @@ def generate_launch_description():
         output="screen",
         parameters=[
             {
-                "arena_marker_name": "arena1_marker",
-                "bot_marker_name": "bot1_marker",
-                "vicon_topic_prefix": vicon_prefix,
                 "mpose_topic_prefix": mpose_prefix,
+                "vicon_topic_prefix": vicon_prefix,
                 "vicon_msg_type": vicon_msg_type,
+                "bot_marker_pattern": bot_pattern,
+                "arena_marker_pattern": arena_pattern,
                 "estimated_output_topic": "/relative_pose/estimated",
                 "ground_truth_output_topic": "/relative_pose/ground_truth",
-                'dist_tolerance': 0.05,
-                'angle_tolerance': 10,
-                'max_lin_speed': 0.1,
-                'max_ang_speed': 0.1,
                 "sync_tolerance_s": 0.01,
+                "discovery_period_s": 1.0,
             }
         ],
     )
@@ -60,13 +59,17 @@ def generate_launch_description():
         output="screen",
         parameters=[
             {
-                "use_sim_time": False, 
+                "use_sim_time": False,
                 # Choose from 'vicon' or 'mpose'
-                "control_mode": 'mpose',
+                "control_mode": "mpose",
                 "estimated_pose_topic": "/relative_pose/estimated",
                 "ground_truth_pose_topic": "/relative_pose/ground_truth",
-                "pose_rate": 15,
-                "drive_topic": bot_topic
+                "pose_rate": 30,
+                "drive_topic": bot_topic,
+                "dist_tolerance": 0.05,
+                "angle_tolerance": 10,
+                "max_lin_speed": 0.1,
+                "max_ang_speed": 0.1,
             }
         ],
         emulate_tty=True,
@@ -74,8 +77,8 @@ def generate_launch_description():
 
     return LaunchDescription(
         [
-            controller_node,
-            gt_node,
+            # gt_node,
             relative_pose_node,
+            # controller_node,
         ]
     )
