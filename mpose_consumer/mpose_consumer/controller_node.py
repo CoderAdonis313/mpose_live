@@ -37,13 +37,21 @@ class DriverPIDNode(Node):
             raise ValueError("heading_offset_rad must be finite")
 
         # Metres in the arena frame; visit in this order.
+        # self.goals = [
+        #     (0.5, 0.5),
+        #     (0.5, -0.5),
+        #     (-0.5, -0.5),
+        #     (-0.5, 0.5),
+        #     (0.5, 0.5)
+        # ]
         self.goals = [
-            (0.5, 0.5),
-            (0.5, -0.5),
-            (-0.5, -0.5),
-            (-0.5, 0.5),
-            (0.5, 0.5)
+            (1.0, 1.0),
+            (1.0, -1.0),
+            (-1.0, -1.0),
+            (-1.0, 1.0),
+            (1.0, 1.0)
         ]
+
         self.goal_idx = 0
         self.bot_loc = (0, 0)
         self.bot_yaw = 0.0
@@ -52,7 +60,7 @@ class DriverPIDNode(Node):
         self.dist_tolerance = float(self.declare_parameter('dist_tolerance', '0.1').value)  # type: ignore
         self.heading_tolerance = radians(float(self.declare_parameter('angle_tolerance', '10').value))  # type: ignore
         self.max_linear_speed = float(self.declare_parameter('max_lin_speed', '0.1').value)   # m/s # type: ignore
-        self.max_angular_speed = float(float(self.declare_parameter('max_ang_speed', '0.1').value)) # rad/s # type: ignore
+        self.max_angular_speed = float(self.declare_parameter('max_ang_speed', '0.2').value) # rad/s # type: ignore
         self.linear_kp = 0.5
         self.angular_kp = 2.0
         self.shutdown_signal = False

@@ -77,7 +77,7 @@ def generate_launch_description():
 
     return LaunchDescription(
         [
-            # gt_node,
+            gt_node,
             relative_pose_node,
             # controller_node,
         ]
