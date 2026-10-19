@@ -9,6 +9,7 @@ from geometry_msgs.msg import PoseStamped, Twist
 from rclpy.node import Node
 from rclpy.signals import SignalHandlerOptions
 from tf_transformations import euler_from_quaternion
+from rclpy.parameter import Parameter
 
 
 class DriverPIDNode(Node):
@@ -37,20 +38,23 @@ class DriverPIDNode(Node):
             raise ValueError("heading_offset_rad must be finite")
 
         # Metres in the arena frame; visit in this order.
-        # self.goals = [
-        #     (0.5, 0.5),
-        #     (0.5, -0.5),
-        #     (-0.5, -0.5),
-        #     (-0.5, 0.5),
-        #     (0.5, 0.5)
-        # ]
-        self.goals = [
-            (1.0, 1.0),
-            (1.0, -1.0),
-            (-1.0, -1.0),
-            (-1.0, 1.0),
-            (1.0, 1.0)
-        ]
+        flat_goals = self.declare_parameter("goals", Parameter.Type.DOUBLE_ARRAY).value
+
+        if flat_goals is None:
+            self.goals = [
+                        (0.5, 0.5),
+                        (0.5, -0.5),
+                        (-0.5, -0.5),
+                        (-0.5, 0.5),
+                        (0.5, 0.5)
+                    ]
+        else:   
+            self.goals = [
+                    (flat_goals[i], flat_goals[i + 1]) # type: ignore
+                    for i in range(0, len(flat_goals), 2) # type: ignore
+                ]
+            self.get_logger().info(f'Goals list: {self.goals}')
+        
 
         self.goal_idx = 0
         self.bot_loc = (0, 0)
