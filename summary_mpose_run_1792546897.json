@@ -1,0 +1,19 @@
+{
+  "storage_identifier": "sqlite3",
+  "bag_files": [
+    "rosbags/mpose_run_1792546897/mpose_run_1792546897_0.db3"
+  ],
+  "average_errors_by_bot": {},
+  "per_bot": {
+    "bot1_marker": {
+      "estimated_topic": null,
+      "ground_truth_topic": "/relative_pose/ground_truth/bot1_marker",
+      "error": "Missing estimated or ground-truth topic"
+    },
+    "bot4_marker": {
+      "estimated_topic": null,
+      "ground_truth_topic": "/relative_pose/ground_truth/bot4_marker",
+      "error": "Missing estimated or ground-truth topic"
+    }
+  }
+}

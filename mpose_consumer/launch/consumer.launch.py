@@ -8,6 +8,7 @@ def generate_launch_description():
     vicon_prefix = "/vicon"
     mpose_prefix = "/mpose/poses"
     vicon_msg_type = "TransformStamped"
+    est_msg_type = "TransformStamped"
     bot_topic = "/TB1/cmd_vel"
     bot_pattern = r"^bot.*_marker$"
     arena_pattern = f"^arena.*_marker$"
@@ -40,11 +41,16 @@ def generate_launch_description():
         output="screen",
         parameters=[
             {
-                "mpose_topic_prefix": mpose_prefix,
-                "vicon_topic_prefix": vicon_prefix,
-                "vicon_msg_type": vicon_msg_type,
-                "bot_marker_pattern": bot_pattern,
-                "arena_marker_pattern": arena_pattern,
+                "mpose_topic_prefix": "/mpose/poses",
+                "vicon_topic_prefix": "/vicon",
+                # Types received from existing publishers.
+                "est_msg_type": "PoseStamped",
+                "vicon_msg_type": "TransformStamped",
+                # Types this node publishes — choose these independently.
+                "estimated_output_msg_type": "TransformStamped",
+                "ground_truth_output_msg_type": "PoseStamped",
+                "bot_marker_pattern": r"^bot.*_marker$",
+                "arena_marker_pattern": r"^arena1_marker$",
                 "estimated_output_topic": "/relative_pose/estimated",
                 "ground_truth_output_topic": "/relative_pose/ground_truth",
                 "sync_tolerance_s": 0.01,
@@ -52,7 +58,7 @@ def generate_launch_description():
             }
         ],
     )
-
+    
     controller_node = Node(
         package="mpose_consumer",
         executable="controller_node",
