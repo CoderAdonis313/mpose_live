@@ -11,7 +11,7 @@ from geometry_msgs.msg import PoseStamped, TransformStamped
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from scipy.spatial.transform import Rotation, Slerp
-from std_msgs.msg import Float64
+from mpose_interfaces.msg import PoseError
 
 
 def stamp_ns(stamp):
@@ -138,7 +138,6 @@ class GTErrorNode(Node):
             raise ValueError("This live comparison requires use_sim_time=false")
 
         self.mpose_topic_prefix = str(self.declare_parameter("mpose_topic_prefix", "/mpose/poses").value).rstrip("/")
-
         self.vicon_topic_prefix = str(self.declare_parameter("vicon_topic_prefix", "/vicon").value).rstrip("/")
 
         bot_pattern = str(self.declare_parameter("bot_marker_pattern", r"^bot.*_marker$").value)
@@ -147,21 +146,15 @@ class GTErrorNode(Node):
         self.vicon_msg_type = str(self.declare_parameter("vicon_msg_type", "TransformStamped").value)
 
         # Output prefixes. Each bot label is appended to these.
-        self.trans_error_topic = str(self.declare_parameter("trans_error_topic", "/pose_error/translation").value).rstrip("/")
+        self.pose_error_topic = str(self.declare_parameter("pose_error_topic", "/pose_error").value).rstrip("/")
 
-        self.rot_error_topic = str(self.declare_parameter("rot_error_topic", "/pose_error/rotation").value).rstrip("/")
+        history_seconds = float(self.declare_parameter("vicon_history_s", 10.0).value) # type: ignore
+        maximum_gap_seconds = float(self.declare_parameter("max_vicon_gap_s", 0.05).value)  # type: ignore
+        discovery_period = float(self.declare_parameter("discovery_period_s", 1.0).value)  # type: ignore
+        self.beta = float(self.declare_parameter("beta", 1.0).value)  # type: ignore
 
-        self.pose_loss_topic = str(self.declare_parameter("pose_loss_topic", "/pose_error/loss").value).rstrip("/")
-
-        # Leave empty to discover the single matching arena marker.
-        self.configured_arena = str(self.declare_parameter("arena_marker_name", "").value).lower()
-
-        history_seconds = float(self.declare_parameter("vicon_history_s", 10.0).value)
-        maximum_gap_seconds = float(self.declare_parameter("max_vicon_gap_s", 0.05).value)
-        discovery_period = float(self.declare_parameter("discovery_period_s", 1.0).value)
-        self.beta = float(self.declare_parameter("beta", 1.0).value)
-
-        assert self.beta > 0
+        if not self.beta > 0:
+            raise ValueError("Beta value must be positive")
 
         if not math.isfinite(history_seconds) or history_seconds <= 0:
             raise ValueError("vicon_history_s must be positive")
@@ -188,13 +181,11 @@ class GTErrorNode(Node):
         # Marker label -> Vicon parent frame.
         self.vicon_parent_frames = {}
 
-        # Bot label -> last evaluated or permanently rejected timestamp.
+        # (arena, label, Bot label) -> last evaluated or permanently rejected timestamp.
         self.last_evaluated = {}
 
         # Bot label -> (translation, rotation, loss) publishers.
         self.error_publishers = {}
-
-        self.discovery_warning_shown = False
 
         self.vicon_qos = QoSProfile(
             depth=1000,
@@ -214,91 +205,105 @@ class GTErrorNode(Node):
         self.get_logger().info(f"Looking for Vicon topics under " f"{self.vicon_topic_prefix}/")
         self.get_logger().info(f"Bot pattern: {bot_pattern}; " f"arena pattern: {arena_pattern}")
 
-
     def is_marker_name(self, label):
         return bool(self.bot_pattern.fullmatch(label) or self.arena_pattern.fullmatch(label))
 
-
     def pose_loss(self, estimated, ground_truth):
-        est_quats = Rotation.from_matrix(estimated[:3, :3]).as_quat()
-        gt_quats = Rotation.from_matrix(ground_truth[:3, :3]).as_quat()
+        est_quats = Rotation.from_matrix(estimated[:3, :3]).as_quat() # type: ignore
+        gt_quats = Rotation.from_matrix(ground_truth[:3, :3]).as_quat() # type: ignore
 
         # q and -q represent the same rotation.
         diff_quats = np.sum((est_quats - gt_quats) ** 2)
         sum_quats = np.sum((est_quats + gt_quats) ** 2)
 
-        rotation_loss = np.sqrt(min(diff_quats, sum_quats))
-        translation_loss = np.sqrt(np.sum((estimated[:3, 3] - ground_truth[:3, 3]) ** 2))
-        return translation_loss + self.beta * rotation_loss
+        rotation_loss = float(np.sqrt(min(diff_quats, sum_quats)))
+        translation_loss = float(np.sqrt(np.sum((estimated[:3, 3] - ground_truth[:3, 3]) ** 2)))
+        loss = float(translation_loss + self.beta * rotation_loss)
+        return loss, translation_loss, rotation_loss
 
-
-    def create_error_topics(self, bot_label):
-        """Create and cache separate error publishers for this bot."""
+    def error_publisher(self, bot_label):
+        """Create and cache one PoseError publisher per bot."""
         if bot_label not in self.error_publishers:
-            self.error_publishers[bot_label] = tuple(
-                self.create_publisher(
-                    Float64,
-                    f"{prefix}/{bot_label}",
-                    10,
-                )
-                for prefix in (
-                    self.trans_error_topic,
-                    self.rot_error_topic,
-                    self.pose_loss_topic,
-                )
+            topic = f"{self.pose_error_topic}/{bot_label}"
+
+            self.error_publishers[bot_label] = self.create_publisher(
+                PoseError,
+                topic,
+                10,
             )
+
+            self.get_logger().info(f"Pose errors for {bot_label!r} -> {topic}")
         return self.error_publishers[bot_label]
 
+    def publish_pose_error(
+        self,
+        timestamp_ns,
+        arena_label,
+        bot_label,
+        translation_error_m,
+        rotation_error_deg,
+        pose_loss,
+        quat_loss
+    ):
+        """Publish one complete, timestamped error measurement."""
+        message = PoseError()
 
-    def generate_pose_msg(self, bot_label, t_error, r_error, loss):
-        trans_pub, rot_pub, loss_pub = self.create_error_topics(bot_label)
+        seconds, nanoseconds = divmod(
+            timestamp_ns,
+            1_000_000_000,
+        )
 
-        t_error_msg = Float64()
-        t_error_msg.data = t_error
-        trans_pub.publish(t_error_msg)
+        message.header.stamp.sec = int(seconds)
+        message.header.stamp.nanosec = int(nanoseconds)
+        message.header.frame_id = arena_label
 
-        r_error_msg = Float64()
-        r_error_msg.data = r_error
-        rot_pub.publish(r_error_msg)
-
-        loss_msg = Float64()
-        loss_msg.data = loss
-        loss_pub.publish(loss_msg)
-
+        message.bot_label = bot_label
+        message.translation_error_m = translation_error_m
+        message.rotation_error_deg = rotation_error_deg
+        message.pose_loss = pose_loss
+        message.rotation_error_quat = quat_loss
+        self.error_publisher(bot_label).publish(message)
 
     def pose_error_calculation(
         self,
+        timestamp_ns,
+        arena_label,
         bot_label,
-        T_ground_truth,
-        T_estimated,
+        ground_truth,
+        estimated,
     ):
-        translation_delta = T_estimated[:3, 3] - T_ground_truth[:3, 3]
-        translation_error_m = float(np.linalg.norm(translation_delta))
-        rotation_error_deg = rotation_error_degrees(
-            T_estimated,
-            T_ground_truth,
+        translation_delta = (
+            estimated[:3, 3] - ground_truth[:3, 3]
         )
-        loss = self.pose_loss(T_estimated, T_ground_truth)
+        translation_error_m = float(
+            np.linalg.norm(translation_delta)
+        )
 
-        self.generate_pose_msg(
+        rotation_error_deg = rotation_error_degrees(
+            estimated,
+            ground_truth,
+        )
+
+        loss, _, quat_loss = self.pose_loss(estimated, ground_truth)
+
+        self.publish_pose_error(
+            timestamp_ns,
+            arena_label,
             bot_label,
             translation_error_m,
             rotation_error_deg,
             loss,
+            quat_loss
         )
-        # self.get_logger().info(f"Error stats for {bot_label}:\n" f"Translation error: {translation_error_m} m\n" f"Rotation error: {rotation_error_deg} deg\n" f"Pose loss: {loss}")
-
 
     @staticmethod
     def topic_marker_name(topic):
         """Match MegaPose and Vicon using the final topic component."""
         return topic.rstrip("/").split("/")[-1].lower()
 
-
     @staticmethod
     def under_prefix(topic, prefix):
         return topic == prefix.lower() or topic.startswith(prefix + "/")
-
 
     def discover_topics(self):
         for topic, message_types in self.get_topic_names_and_types():
@@ -316,7 +321,6 @@ class GTErrorNode(Node):
                 elif self.vicon_msg_type == "TransformStamped":
                     self.add_vicon_transform_subscription(label, topic)
 
-
     def add_mpose_subscription(self, label, topic):
         if label in self.mpose_subscriptions:
             return
@@ -328,13 +332,7 @@ class GTErrorNode(Node):
             50,
         )
         self.mpose_subscriptions[label] = subscription
-
-        # Arena poses are references; only bots get error topics.
-        if self.bot_pattern.fullmatch(label):
-            self.create_error_topics(label)
-
         self.get_logger().info(f"MegaPose marker {label!r}: {topic}")
-
 
     def add_vicon_pose_subscription(self, label, topic):
         if label in self.vicon_subscriptions:
@@ -351,7 +349,6 @@ class GTErrorNode(Node):
 
         self.get_logger().info(f"Vicon marker {label!r}: {topic} [PoseStamped]")
 
-
     def add_vicon_transform_subscription(self, label, topic):
         if label in self.vicon_subscriptions:
             return
@@ -366,7 +363,6 @@ class GTErrorNode(Node):
         self.vicon_histories[label] = PoseHistory(self.history_duration_ns)
 
         self.get_logger().info(f"Vicon marker {label!r}: {topic} [TransformStamped]")
-
 
     def on_mpose(self, label, message):
         timestamp_ns = stamp_ns(message.header.stamp)
@@ -385,7 +381,6 @@ class GTErrorNode(Node):
             matrix,
         )
         self.compare_available()
-
 
     def add_vicon_sample(
         self,
@@ -409,7 +404,6 @@ class GTErrorNode(Node):
         # New Vicon data may allow a previously pending comparison.
         self.compare_available()
 
-
     def on_vicon_transform(self, label, message):
         try:
             matrix = transform_stamped_to_matrix(message)
@@ -422,7 +416,6 @@ class GTErrorNode(Node):
             message.header.frame_id,
             matrix,
         )
-
 
     def on_vicon_pose(self, label, message):
         try:
@@ -438,107 +431,86 @@ class GTErrorNode(Node):
         )
 
 
-    def arena_label(self):
-        if self.configured_arena:
-            return self.configured_arena
-
-        candidates = {label for label in (set(self.latest_mpose) | set(self.vicon_histories)) if self.arena_pattern.fullmatch(label)}
-
-        if len(candidates) == 1:
-            return next(iter(candidates))
-
-        if len(candidates) > 1 and not self.discovery_warning_shown:
-            self.get_logger().warning("Multiple arena markers matched. " "Set arena_marker_name explicitly.")
-            self.discovery_warning_shown = True
-
-        return None
-
-
     def compare_available(self):
-        arena_label = self.arena_label()
+        arena_labels = sorted(label for label in self.latest_mpose if self.arena_pattern.fullmatch(label) and label in self.vicon_histories)
+        bot_labels = sorted(label for label in self.latest_mpose if self.bot_pattern.fullmatch(label) and label in self.vicon_histories)
 
-        if arena_label is None:
-            return
-
-        arena_estimate = self.latest_mpose.get(arena_label)
-        arena_history = self.vicon_histories.get(arena_label)
-
-        if arena_estimate is None or arena_history is None:
-            return
-
-        (
-            arena_timestamp,
-            camera_frame,
-            camera_T_arena,
-        ) = arena_estimate
-
-        for bot_label, bot_estimate in self.latest_mpose.items():
-            if not self.bot_pattern.fullmatch(bot_label):
-                continue
-
-            bot_history = self.vicon_histories.get(bot_label)
-
-            if bot_history is None:
-                continue
-
+        for arena_label in arena_labels:
             (
-                bot_timestamp,
-                bot_camera_frame,
-                camera_T_bot,
-            ) = bot_estimate
-
-            # Both estimates must come from the same source image.
-            if bot_timestamp != arena_timestamp:
-                continue
-
-            if bot_camera_frame != camera_frame:
-                continue
-
-            if bot_timestamp <= self.last_evaluated.get(bot_label, -1):
-                continue
-
-            arena_parent = self.vicon_parent_frames.get(arena_label)
-            bot_parent = self.vicon_parent_frames.get(bot_label)
-
-            if arena_parent is None or bot_parent is None or arena_parent != bot_parent:
-                continue
-
-            try:
-                world_T_arena = arena_history.at(
-                    bot_timestamp,
-                    self.maximum_vicon_gap_ns,
-                )
-                world_T_bot = bot_history.at(
-                    bot_timestamp,
-                    self.maximum_vicon_gap_ns,
-                )
-
-            except LookupError:
-                # Wait until Vicon history brackets the image timestamp.
-                continue
-
-            except ValueError as error:
-                self.get_logger().warning(f"Cannot match {bot_label!r} " f"at {bot_timestamp}: {error}")
-                self.last_evaluated[bot_label] = bot_timestamp
-                continue
-
-            estimated_arena_T_bot = relative_pose(
+                arena_timestamp,
+                camera_frame,
                 camera_T_arena,
-                camera_T_bot,
-            )
-            ground_truth_arena_T_bot = relative_pose(
-                world_T_arena,
-                world_T_bot,
-            )
+            ) = self.latest_mpose[arena_label]
 
-            # self.get_logger().info(f"{bot_label} wrt {arena_label}:")
+            arena_history = self.vicon_histories[arena_label]
+            arena_parent = self.vicon_parent_frames.get(arena_label)
 
-            self.pose_error_calculation(
-                bot_label,
-                ground_truth_arena_T_bot,
-                estimated_arena_T_bot,
-            )
-            self.last_evaluated[bot_label] = bot_timestamp
+            if arena_parent is None:
+                continue
+
+            for bot_label in bot_labels:
+                (
+                    bot_timestamp,
+                    bot_camera_frame,
+                    camera_T_bot,
+                ) = self.latest_mpose[bot_label]
+
+                # Both estimates must originate from the same camera image.
+                if bot_timestamp != arena_timestamp:
+                    continue
+
+                if bot_camera_frame != camera_frame:
+                    continue
+
+                pair_key = (arena_label, bot_label)
+
+                if bot_timestamp <= self.last_evaluated.get(pair_key, -1):
+                    continue
+
+                bot_parent = self.vicon_parent_frames.get(bot_label)
+
+                if bot_parent is None or bot_parent != arena_parent:
+                    continue
+
+                bot_history = self.vicon_histories[bot_label]
+
+                try:
+                    world_T_arena = arena_history.at(
+                        bot_timestamp,
+                        self.maximum_vicon_gap_ns,
+                    )
+                    world_T_bot = bot_history.at(
+                        bot_timestamp,
+                        self.maximum_vicon_gap_ns,
+                    )
+
+                except LookupError:
+                    # A newer Vicon sample may still arrive.
+                    continue
+
+                except ValueError as error:
+                    self.get_logger().warning(f"Cannot match {bot_label!r} relative to " f"{arena_label!r} at {bot_timestamp}: {error}")
+                    self.last_evaluated[pair_key] = bot_timestamp
+                    continue
+
+                estimated_arena_T_bot = relative_pose(
+                    camera_T_arena,
+                    camera_T_bot,
+                )
+                ground_truth_arena_T_bot = relative_pose(
+                    world_T_arena,
+                    world_T_bot,
+                )
+
+                self.pose_error_calculation(
+                    bot_timestamp,
+                    arena_label,
+                    bot_label,
+                    ground_truth_arena_T_bot,
+                    estimated_arena_T_bot,
+                )
+
+                self.last_evaluated[pair_key] = bot_timestamp
 
 
 def main(args=None):

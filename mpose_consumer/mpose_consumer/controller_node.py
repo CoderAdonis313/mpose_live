@@ -5,9 +5,8 @@ from math import atan2, cos, hypot, isfinite, radians, sin
 from time import monotonic
 
 import rclpy
-from geometry_msgs.msg import PoseStamped, Twist
+from geometry_msgs.msg import PoseStamped, Twist, TransformStamped
 from rclpy.node import Node
-from rclpy.signals import SignalHandlerOptions
 from tf_transformations import euler_from_quaternion
 from rclpy.parameter import Parameter
 
@@ -16,23 +15,41 @@ class DriverPIDNode(Node):
     def __init__(self):
         super().__init__("driver_pid_node")
 
-        est_pose_topic = str(self.declare_parameter("estimated_pose_topic", "").value)
-        gt_pose_topic = str(self.declare_parameter("ground_truth_pose_topic", "").value)
-        control_mode = str(self.declare_parameter("control_mode", "").value)
-        pose_topic = gt_pose_topic if control_mode == 'vicon' else est_pose_topic
+        control_mode = str(self.declare_parameter("control_mode", "mpose").value).lower()
+        if control_mode not in ("vicon", "mpose"):
+            raise ValueError("control_mode must be 'vicon' or 'mpose'")
 
-        assert control_mode in ['vicon', 'mpose']
+        estimated_topic = str(self.declare_parameter("estimated_pose_topic", "").value)
+        ground_truth_topic = str(self.declare_parameter("ground_truth_pose_topic", "").value)
+
+        pose_topic = ground_truth_topic if control_mode == "vicon" else estimated_topic
+        if not pose_topic:
+            raise ValueError(f"Pose topic for control_mode={control_mode!r} must not be empty")
 
         drive_topic = str(self.declare_parameter("drive_topic", "/cmd_vel").value)
-        self.rate = float(self.declare_parameter("pose_rate", 15).value)    #type: ignore
-        self.pose_timeout = float(self.declare_parameter("pose_timeout_s", 1.0).value)  #type: ignore
-        self.arena_frame = str(self.declare_parameter("arena_frame", "arena1_marker").value)
+        if not drive_topic:
+            raise ValueError("drive_topic must not be empty")
+
+        self.arena_frame = str(self.declare_parameter("arena_frame", "arena1_marker",).value)
+
+        # rel_pose_node puts the bot label in child_frame_id. By default,
+        # obtain that label from the final component of its output topic.
+        default_bot_frame = pose_topic.rstrip("/").split("/")[-1]
+        self.bot_frame = str(self.declare_parameter("bot_frame", default_bot_frame,).value)
+
+        if not self.arena_frame:
+            raise ValueError("arena_frame must not be empty")
+
+        if not self.bot_frame:
+            raise ValueError("bot_frame must not be empty")
+
+        self.rate = float(self.declare_parameter("pose_rate", 15).value)  # type: ignore
+        self.pose_timeout = float(self.declare_parameter("pose_timeout_s", 1.0).value)  # type: ignore
 
         # Angle from marker +X to robot forward, about marker +Z.
-        self.yaw_offset = float(self.declare_parameter("heading_offset_rad", 0.0).value)    #type: ignore
+        self.yaw_offset = float(self.declare_parameter("heading_offset_rad", 0.0).value)  # type: ignore
 
-        if not all(isfinite(v) and v > 0
-                   for v in (self.rate, self.pose_timeout)):
+        if not all(isfinite(v) and v > 0 for v in (self.rate, self.pose_timeout)):
             raise ValueError("pose_rate and pose_timeout_s must be positive")
         if not isfinite(self.yaw_offset):
             raise ValueError("heading_offset_rad must be finite")
@@ -41,64 +58,77 @@ class DriverPIDNode(Node):
         flat_goals = self.declare_parameter("goals", Parameter.Type.DOUBLE_ARRAY).value
 
         if flat_goals is None:
+            self.goals = [(0.5, 0.5), (0.5, -0.5), (-0.5, -0.5), (-0.5, 0.5), (0.5, 0.5)]
+        else:
             self.goals = [
-                        (0.5, 0.5),
-                        (0.5, -0.5),
-                        (-0.5, -0.5),
-                        (-0.5, 0.5),
-                        (0.5, 0.5)
-                    ]
-        else:   
-            self.goals = [
-                    (flat_goals[i], flat_goals[i + 1]) # type: ignore
-                    for i in range(0, len(flat_goals), 2) # type: ignore
-                ]
-            self.get_logger().info(f'Goals list: {self.goals}')
-        
-
+                (flat_goals[i], flat_goals[i + 1])  # type: ignore
+                for i in range(0, len(flat_goals), 2)  # type: ignore
+            ]
+            
+        self.get_logger().info(f"Goals list: {self.goals}")
         self.goal_idx = 0
         self.bot_loc = (0, 0)
         self.bot_yaw = 0.0
         self.last_pose_time = None
 
-        self.dist_tolerance = float(self.declare_parameter('dist_tolerance', '0.1').value)  # type: ignore
-        self.heading_tolerance = radians(float(self.declare_parameter('angle_tolerance', '10').value))  # type: ignore
-        self.max_linear_speed = float(self.declare_parameter('max_lin_speed', '0.1').value)   # m/s # type: ignore
-        self.max_angular_speed = float(self.declare_parameter('max_ang_speed', '0.2').value) # rad/s # type: ignore
+        self.dist_tolerance = float(self.declare_parameter("dist_tolerance", "0.1").value)  # type: ignore
+        self.heading_tolerance = radians(float(self.declare_parameter("angle_tolerance", "10").value))  # type: ignore
+        self.max_linear_speed = float(self.declare_parameter("max_lin_speed", "0.1").value)  # m/s # type: ignore
+        self.max_angular_speed = float(self.declare_parameter("max_ang_speed", "0.2").value)  # rad/s # type: ignore
         self.linear_kp = 0.5
         self.angular_kp = 2.0
         self.shutdown_signal = False
 
         self.pub_ = self.create_publisher(Twist, drive_topic, 10)
-        self.pose_sub = self.create_subscription(
-            PoseStamped, pose_topic, self.listen_pose, 1)
-        self.control_timer_ = self.create_timer(
-            1.0 / self.rate, self.control_loop)
-
+        self.pose_sub = self.create_subscription(TransformStamped, pose_topic, self.listen_pose, 1)
+        self.control_timer_ = self.create_timer(1.0 / self.rate, self.control_loop)
 
     def publish_stop(self):
         self.pub_.publish(Twist())
 
 
     def listen_pose(self, msg):
-        p, q = msg.pose.position, msg.pose.orientation
-        values = (p.x, p.y, p.z, q.x, q.y, q.z, q.w)
+        # Multiple arenas are published on the same bot topic. Messages
+        # belonging to another arena are unrelated, not invalid.
+        if msg.header.frame_id != self.arena_frame:
+            return
+
+        # Ignore data for another robot if it appears on this topic.
+        if msg.child_frame_id != self.bot_frame:
+            return
+
+        p = msg.transform.translation
+        q = msg.transform.rotation
+
+        values = (
+            p.x,
+            p.y,
+            p.z,
+            q.x,
+            q.y,
+            q.z,
+            q.w,
+        )
         norm = hypot(q.x, q.y, q.z, q.w)
 
         stamp = msg.header.stamp
         pose_time = stamp.sec + stamp.nanosec * 1e-9
-        age = self.get_clock().now().nanoseconds * 1e-9 - pose_time
+        now = self.get_clock().now().nanoseconds * 1e-9
+        age = now - pose_time
 
-        if (msg.header.frame_id != self.arena_frame
-                or not all(isfinite(v) for v in values)
-                or norm < 1e-9
-                or not -0.1 <= age <= self.pose_timeout):
+        if not all(isfinite(value) for value in values) or norm < 1e-9 or not -0.1 <= age <= self.pose_timeout:
             self.last_pose_time = None
             self.publish_stop()
             return
 
         _, _, yaw = euler_from_quaternion(
-            [q.x / norm, q.y / norm, q.z / norm, q.w / norm])
+            [
+                q.x / norm,
+                q.y / norm,
+                q.z / norm,
+                q.w / norm,
+            ]
+        )
 
         self.bot_loc = (p.x, p.y)
         self.bot_yaw = yaw + self.yaw_offset
@@ -110,7 +140,7 @@ class DriverPIDNode(Node):
             self.publish_stop()
             return
 
-        if (self.last_pose_time is None or monotonic() - self.last_pose_time > self.pose_timeout):
+        if self.last_pose_time is None or monotonic() - self.last_pose_time > self.pose_timeout:
             self.publish_stop()
             return
 
@@ -128,8 +158,7 @@ class DriverPIDNode(Node):
         # Check arrival first: waypoints do not specify final orientation.
         if distance <= self.dist_tolerance:
             self.publish_stop()
-            self.get_logger().info(
-                f"Reached waypoint {self.goal_idx + 1}: {goal}")
+            self.get_logger().info(f"Reached waypoint {self.goal_idx + 1}: {goal}")
             self.goal_idx += 1
 
             if self.goal_idx == len(self.goals):
@@ -142,14 +171,11 @@ class DriverPIDNode(Node):
         error = atan2(sin(error), cos(error))  # Signed shortest turn.
 
         command = Twist()
-        command.angular.z = max(
-            -self.max_angular_speed,
-            min(self.max_angular_speed, self.angular_kp * error))
+        command.angular.z = max(-self.max_angular_speed, min(self.max_angular_speed, self.angular_kp * error))
 
         # Turn in place until aligned; keep steering while moving.
         if abs(error) <= self.heading_tolerance:
-            command.linear.x = min(
-                self.max_linear_speed, self.linear_kp * distance)
+            command.linear.x = min(self.max_linear_speed, self.linear_kp * distance)
 
         self.pub_.publish(command)
 

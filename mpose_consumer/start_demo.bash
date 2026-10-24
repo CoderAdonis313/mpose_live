@@ -27,8 +27,8 @@ ros2 bag play "rosbags/$BAG_NAME"
 ros2 run mpose_consumer controller_node --ros-args \
   -r __node:=controller_bot1 \
   -p control_mode:=mpose \
-  -p estimated_pose_topic:=/relative_pose/estimated/bot1_marker \
-  -p ground_truth_pose_topic:=/relative_pose/ground_truth/bot1_marker \
+  -p estimated_pose_topic:=/relative_pose/estimated/bot1_marker/bot1_marker \
+  -p ground_truth_pose_topic:=/relative_pose/ground_truth/bot1_marker/bot1_marker \
   -p drive_topic:=/TB1/cmd_vel \
   -p arena_frame:=arena1_marker \
   -p 'goals:=[1.0, 1.0, 1.0, -1.0, -1.0, -1.0, -1.0, 1.0, 1.0, 1.0]'
