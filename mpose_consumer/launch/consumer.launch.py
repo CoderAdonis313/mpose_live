@@ -7,7 +7,7 @@ def generate_launch_description():
     mpose_status_topic = "/mpose/status"
     vicon_prefix = "/vicon"
     mpose_prefix = "/mpose/poses"
-    vicon_msg_type = "PoseStamped"
+    vicon_msg_type = "TransformStamped"
     bot_topic = "/TB1/cmd_vel"
     bot_pattern = r"^bot.*_marker$"
     arena_pattern = f"^arena.*_marker$"
@@ -72,18 +72,13 @@ def generate_launch_description():
         parameters=[
             {
                 "use_sim_time": False,
-                "control_mode": "mpose",
+                "control_mode": "vicon",
                 "estimated_pose_topic": (f"/relative_pose/estimated/" f"{controlled_bot}/{controlled_bot}"),
                 "ground_truth_pose_topic": (f"/relative_pose/ground_truth/" f"{controlled_bot}/{controlled_bot}"),
                 "arena_frame": controlled_arena,
                 "bot_frame": controlled_bot,
                 "pose_rate": 30.0,
-                "pose_timeout_s": 1.0,
                 "drive_topic": bot_topic,
-                "dist_tolerance": 0.05,
-                "angle_tolerance": 10.0,
-                "max_lin_speed": 0.1,
-                "max_ang_speed": 0.1,
             }
         ],
         emulate_tty=True,
