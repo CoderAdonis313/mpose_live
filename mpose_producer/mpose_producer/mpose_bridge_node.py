@@ -93,6 +93,7 @@ class MPoseBridgeNode(Node):
         super().__init__("mpose_bridge_node")
 
         udp_port = int(self.declare_parameter("udp_port", 5005).value)  #type: ignore
+        ip_addr = self.declare_parameter("ip", "127.0.0.1").value
         self.pose_topic_prefix = str(self.declare_parameter("pose_topic_prefix", "/mpose/poses").value).rstrip("/")
         packet_topic = str(self.declare_parameter("packet_topic", "/mpose/packets").value)
         self.max_packets_per_tick = int(self.declare_parameter("max_packets_per_tick", 100).value)  #type: ignore
@@ -130,7 +131,7 @@ class MPoseBridgeNode(Node):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM,)
 
         try:
-            self.socket.bind(("127.0.0.1", udp_port))
+            self.socket.bind((ip_addr, udp_port))
             self.socket.setblocking(False)
 
         except Exception:
@@ -142,7 +143,7 @@ class MPoseBridgeNode(Node):
             self.receive_packets,
         )
 
-        self.get_logger().info(f"Listening on " f"127.0.0.1:{udp_port}")
+        self.get_logger().info(f"Listening on " f"{ip_addr}:{udp_port}")
         self.get_logger().info(f"Raw packets: {packet_topic}")
         self.get_logger().info(f"Marker topics: " f"{self.pose_topic_prefix}/<label>")
 

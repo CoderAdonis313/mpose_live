@@ -261,6 +261,7 @@ class GTErrorNode(Node):
         message.translation_error_m = translation_error_m
         message.rotation_error_deg = rotation_error_deg
         message.pose_loss = pose_loss
+        message.beta = self.beta
         message.rotation_error_quat = quat_loss
         self.error_publisher(bot_label).publish(message)
 

@@ -31,6 +31,7 @@ def generate_launch_description():
                 "vicon_history_s": 10.0,
                 "max_vicon_gap_s": 0.05,
                 "discovery_period_s": 1.0,
+                "beta": 0.1
             }
         ],
         emulate_tty=True,

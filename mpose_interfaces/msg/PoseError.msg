@@ -16,3 +16,6 @@ float64 rotation_error_quat
 
 # Combined translation/quaternion loss.
 float64 pose_loss
+
+# beta balance factor
+float64 beta

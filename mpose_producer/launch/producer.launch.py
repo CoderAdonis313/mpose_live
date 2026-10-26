@@ -12,6 +12,7 @@ def generate_launch_description():
             {
                 "use_sim_time": False,
                 "udp_port": 5005,
+                "ip": "192.168.0.119",
                 "pose_topic_prefix": "/mpose/poses",
                 "packet_topic": "/mpose/packets",
                 "max_packets_per_tick": 100,
