@@ -19,7 +19,7 @@ cd ~/dev/ros2_ws/src/mpose_live
 echo "INFO: Summarizing the rosbag: $BAG_NAME"
 python3 mpose_consumer/analyze_pose_bag.py "rosbags/$BAG_NAME" \
   --beta 0.1 \
-  --output summary_$BAG_NAME.json
+  --output summaries/summary_$BAG_NAME.json
 
 ############################################################ Play the ros bag #########################################################
 cd ~/dev/ros2_ws/src/mpose_live
