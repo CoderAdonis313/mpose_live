@@ -45,7 +45,7 @@ ros2 run mpose_consumer controller_node --ros-args \
   -p ground_truth_pose_topic:=/relative_pose/ground_truth/bot1_marker/bot1_marker \
   -p drive_topic:=/TB1/cmd_vel \
   -p arena_frame:=arena1_marker \
-  -p 'goals:=[1.0, 1.0, 1.0, -1.0, -1.0, -1.0, -1.0, 1.0, 1.0, 1.0]'
+  -p 'goals:=[2.5, 2.5, 2.5, 0.5, 0.5, 0.5, 0.5, 2.5, 2.5, 2.5]'
 
 # BOT2
 ros2 run mpose_consumer controller_node --ros-args \
@@ -55,7 +55,7 @@ ros2 run mpose_consumer controller_node --ros-args \
   -p ground_truth_pose_topic:=/relative_pose/ground_truth/bot2_marker/bot2_marker \
   -p drive_topic:=/TB2/cmd_vel \
   -p arena_frame:=arena1_marker \
-  -p 'goals:=[1.0, -1.0, -1.0, -1.0, -1.0, 1.0, 1.0, 1.0, 1.0, -1.0]'
+  -p 'goals:=[2.5, 0.5, 0.5, 0.5, 0.5, 2.5, 2.5, 2.5, 2.5, 0.5]'
 
 # BOT3
 ros2 run mpose_consumer controller_node --ros-args \
@@ -65,7 +65,7 @@ ros2 run mpose_consumer controller_node --ros-args \
   -p ground_truth_pose_topic:=/relative_pose/ground_truth/bot3_marker/bot3_marker \
   -p drive_topic:=/TB3/cmd_vel \
   -p arena_frame:=arena1_marker \
-  -p 'goals:=[-1.0, -1.0, -1.0, 1.0, 1.0, 1.0, 1.0, -1.0, -1.0, -1.0]'
+  -p 'goals:=[0.5, 0.5, 0.5, 2.5, 2.5, 2.5, 2.5, 0.5, 0.5, 0.5]'
 
 # BOT4
 ros2 run mpose_consumer controller_node --ros-args \
@@ -75,4 +75,4 @@ ros2 run mpose_consumer controller_node --ros-args \
   -p ground_truth_pose_topic:=/relative_pose/ground_truth/bot4_marker/bot4_marker \
   -p drive_topic:=/TB4/cmd_vel \
   -p arena_frame:=arena1_marker \
-  -p 'goals:=[-1.0, 1.0, 1.0, 1.0, 1.0, -1.0, -1.0, -1.0, -1.0, 1.0]'
+  -p 'goals:=[0.5, 2.5, 2.5, 2.5, 2.5, 0.5, 0.5, 0.5, 0.5, 2.5]'
