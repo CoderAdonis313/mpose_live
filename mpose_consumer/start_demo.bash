@@ -40,7 +40,8 @@ ros2 run mpose_consumer controller_node --ros-args \
 # BOT1
 ros2 run mpose_consumer controller_node --ros-args \
   -r __node:=controller_bot1 \
-  -p control_mode:=vicon \
+  -p control_mode:=mpose \
+  -p estimated_pose_topic:=/relative_pose/estimated/bot1_marker/bot1_marker \
   -p ground_truth_pose_topic:=/relative_pose/ground_truth/bot1_marker/bot1_marker \
   -p drive_topic:=/TB1/cmd_vel \
   -p arena_frame:=arena1_marker \
@@ -49,7 +50,8 @@ ros2 run mpose_consumer controller_node --ros-args \
 # BOT2
 ros2 run mpose_consumer controller_node --ros-args \
   -r __node:=controller_bot2 \
-  -p control_mode:=vicon \
+  -p control_mode:=mpose \
+  -p estimated_pose_topic:=/relative_pose/estimated/bot2_marker/bot2_marker \
   -p ground_truth_pose_topic:=/relative_pose/ground_truth/bot2_marker/bot2_marker \
   -p drive_topic:=/TB2/cmd_vel \
   -p arena_frame:=arena1_marker \
@@ -58,7 +60,8 @@ ros2 run mpose_consumer controller_node --ros-args \
 # BOT3
 ros2 run mpose_consumer controller_node --ros-args \
   -r __node:=controller_bot3 \
-  -p control_mode:=vicon \
+  -p control_mode:=mpose \
+  -p estimated_pose_topic:=/relative_pose/estimated/bot3_marker/bot3_marker \
   -p ground_truth_pose_topic:=/relative_pose/ground_truth/bot3_marker/bot3_marker \
   -p drive_topic:=/TB3/cmd_vel \
   -p arena_frame:=arena1_marker \
@@ -67,7 +70,8 @@ ros2 run mpose_consumer controller_node --ros-args \
 # BOT4
 ros2 run mpose_consumer controller_node --ros-args \
   -r __node:=controller_bot4 \
-  -p control_mode:=vicon \
+  -p control_mode:=mpose \
+  -p estimated_pose_topic:=/relative_pose/estimated/bot4_marker/bot4_marker \
   -p ground_truth_pose_topic:=/relative_pose/ground_truth/bot4_marker/bot4_marker \
   -p drive_topic:=/TB4/cmd_vel \
   -p arena_frame:=arena1_marker \

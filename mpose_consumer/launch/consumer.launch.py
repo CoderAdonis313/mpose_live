@@ -78,7 +78,7 @@ def generate_launch_description():
                 "ground_truth_pose_topic": (f"/relative_pose/ground_truth/" f"{controlled_bot}/{controlled_bot}"),
                 "arena_frame": controlled_arena,
                 "bot_frame": controlled_bot,
-                "pose_rate": 30.0,
+                "pose_rate": 15.0,
                 "drive_topic": bot_topic,
             }
         ],

@@ -1,0 +1,746 @@
+{
+  "storage_identifier": "sqlite3",
+  "bag_files": [
+    "rosbags/mpose_run_1793066312/mpose_run_1793066312_0.db3"
+  ],
+  "timestamp_source": "header",
+  "matching_method": "interpolate",
+  "maximum_sample_distance_ms": 100.0,
+  "estimate_time_offset_ms": 0.0,
+  "arena_frame_filter": null,
+  "bot_frame_filter": null,
+  "beta": 0.1,
+  "pose_loss_definition": "||t_est-t_gt|| + beta * min(||q_est-q_gt||, ||q_est+q_gt||)",
+  "successful_arena_bot_groups": 4,
+  "failed_arena_bot_groups": 0,
+  "average_errors_by_bot_and_arena": {
+    "bot1_marker": {
+      "arena1_marker": {
+        "evaluated_pairs": 1041,
+        "translation_error_m": 0.08210911863130611,
+        "rotation_error_deg": 8.078417829876932,
+        "pose_loss": 0.08915406647916646
+      }
+    },
+    "bot2_marker": {
+      "arena1_marker": {
+        "evaluated_pairs": 1040,
+        "translation_error_m": 0.0893937321432964,
+        "rotation_error_deg": 6.355467808476206,
+        "pose_loss": 0.0949380141803446
+      }
+    },
+    "bot3_marker": {
+      "arena1_marker": {
+        "evaluated_pairs": 1041,
+        "translation_error_m": 0.08100466468756827,
+        "rotation_error_deg": 5.812181955096236,
+        "pose_loss": 0.08607568790009858
+      }
+    },
+    "bot4_marker": {
+      "arena1_marker": {
+        "evaluated_pairs": 1041,
+        "translation_error_m": 0.08584144817092591,
+        "rotation_error_deg": 6.70999911526646,
+        "pose_loss": 0.09169583083425698
+      }
+    }
+  },
+  "per_bot": {
+    "bot1_marker": {
+      "per_arena": {
+        "arena1_marker": {
+          "frame_id": "arena1_marker",
+          "child_frame_id": "bot1_marker",
+          "estimated_topics": [
+            "/relative_pose/estimated/bot1_marker/bot1_marker"
+          ],
+          "ground_truth_topics": [
+            "/relative_pose/ground_truth/bot1_marker/bot1_marker"
+          ],
+          "estimated_messages": 1729,
+          "ground_truth_messages": 9024,
+          "evaluated_pairs": 1041,
+          "skipped": {
+            "outside_ground_truth_range": 0,
+            "gap_too_large": 688
+          },
+          "estimated_span_seconds": 156.134527865,
+          "effective_estimated_pose_rate_hz": 11.06737903286899,
+          "translation_error_m": {
+            "count": 1041,
+            "mean": 0.08210911863130611,
+            "median": 0.07494896012051962,
+            "p90": 0.1377824459012115,
+            "p95": 0.15859475040554213,
+            "rmse": 0.09146749233752294,
+            "minimum": 0.008748021948773877,
+            "maximum": 0.22727396481113893
+          },
+          "rotation_error_deg": {
+            "count": 1041,
+            "mean": 8.078417829876932,
+            "median": 7.064862890833136,
+            "p90": 11.05481368716634,
+            "p95": 12.87934070247207,
+            "rmse": 9.55663219854091,
+            "minimum": 0.9754573317344194,
+            "maximum": 41.60477694476752
+          },
+          "pose_loss": {
+            "count": 1041,
+            "mean": 0.08915406647916646,
+            "median": 0.08229907453619673,
+            "p90": 0.14805823188919318,
+            "p95": 0.16751153037216823,
+            "rmse": 0.09813223801804773,
+            "minimum": 0.013869262805514964,
+            "maximum": 0.2379194666928804
+          },
+          "squared_translation_error_m2": {
+            "count": 1041,
+            "mean": 0.008366302154514818,
+            "median": 0.00561734662314724,
+            "p90": 0.018984002398520276,
+            "p95": 0.02515229485619621,
+            "rmse": 0.011611211498112707,
+            "minimum": 7.652788801622951e-05,
+            "maximum": 0.05165345508097481
+          },
+          "squared_quaternion_error": {
+            "count": 1041,
+            "mean": 0.006930963598621147,
+            "median": 0.003799834232806747,
+            "p90": 0.009299524666562128,
+            "p95": 0.012618995393699286,
+            "rmse": 0.016914197136698995,
+            "minimum": 7.246172625271618e-05,
+            "maximum": 0.13037825531241112
+          },
+          "ground_truth_sample_distance_ms": {
+            "count": 1041,
+            "mean": 43.50867744764649,
+            "median": 41.497045,
+            "p90": 84.58634,
+            "p95": 91.295329,
+            "rmse": 50.89944281537995,
+            "minimum": 0.104012,
+            "maximum": 99.969191
+          },
+          "accuracy_thresholds": {
+            "translation_m": 0.05,
+            "rotation_deg": 10.0,
+            "successful_pairs": 233,
+            "success_rate_percent": 22.382324687800192
+          },
+          "mean_signed_delta_xyz_m": [
+            -0.005416611590485005,
+            -0.033797300120690106,
+            -0.004809507177723155
+          ],
+          "estimated_xyz_ranges_m": [
+            [
+              -1.0897046710765594,
+              1.0756710529613147
+            ],
+            [
+              -1.1331943144172167,
+              1.0655979629575487
+            ],
+            [
+              0.06299784277951703,
+              0.2638167362228916
+            ]
+          ],
+          "matched_ground_truth_xyz_ranges_m": [
+            [
+              -1.0212495429694357,
+              1.0937765964694877
+            ],
+            [
+              -0.9949788922219487,
+              1.0442212597364429
+            ],
+            [
+              0.13414801486370015,
+              0.19421782056369363
+            ]
+          ]
+        }
+      }
+    },
+    "bot2_marker": {
+      "per_arena": {
+        "arena1_marker": {
+          "frame_id": "arena1_marker",
+          "child_frame_id": "bot2_marker",
+          "estimated_topics": [
+            "/relative_pose/estimated/bot2_marker/bot2_marker"
+          ],
+          "ground_truth_topics": [
+            "/relative_pose/ground_truth/bot2_marker/bot2_marker"
+          ],
+          "estimated_messages": 1728,
+          "ground_truth_messages": 9025,
+          "evaluated_pairs": 1040,
+          "skipped": {
+            "outside_ground_truth_range": 0,
+            "gap_too_large": 688
+          },
+          "estimated_span_seconds": 160.336725164,
+          "effective_estimated_pose_rate_hz": 10.771081910482721,
+          "translation_error_m": {
+            "count": 1040,
+            "mean": 0.0893937321432964,
+            "median": 0.07456037118758016,
+            "p90": 0.13725257516939382,
+            "p95": 0.22553399250846304,
+            "rmse": 0.11099156208712217,
+            "minimum": 0.004865534091854641,
+            "maximum": 0.4895518951762514
+          },
+          "rotation_error_deg": {
+            "count": 1040,
+            "mean": 6.355467808476206,
+            "median": 5.423877561222838,
+            "p90": 10.485627145521924,
+            "p95": 13.75332411701801,
+            "rmse": 7.458883648385652,
+            "minimum": 0.6979929551261097,
+            "maximum": 27.579841450410907
+          },
+          "pose_loss": {
+            "count": 1040,
+            "mean": 0.0949380141803446,
+            "median": 0.07946381396676319,
+            "p90": 0.1430384149447308,
+            "p95": 0.23420287671903398,
+            "rmse": 0.1166814903833726,
+            "minimum": 0.012547928671127596,
+            "maximum": 0.5070263890809359
+          },
+          "squared_translation_error_m2": {
+            "count": 1040,
+            "mean": 0.012319126854539496,
+            "median": 0.005559248978813011,
+            "p90": 0.018838269992342754,
+            "p95": 0.050865625489544604,
+            "rmse": 0.029733330282292372,
+            "minimum": 2.3673421998999772e-05,
+            "maximum": 0.23966105807065943
+          },
+          "squared_quaternion_error": {
+            "count": 1040,
+            "mean": 0.00423139972948603,
+            "median": 0.0022399265929934527,
+            "p90": 0.008367296884156673,
+            "p95": 0.014387854659819484,
+            "rmse": 0.008065767232466473,
+            "minimum": 3.7101842687502165e-05,
+            "maximum": 0.05764754627754006
+          },
+          "ground_truth_sample_distance_ms": {
+            "count": 1040,
+            "mean": 43.51727296730769,
+            "median": 41.5341405,
+            "p90": 84.61111490000002,
+            "p95": 91.31761414999997,
+            "rmse": 50.91262428728597,
+            "minimum": 0.104012,
+            "maximum": 99.969191
+          },
+          "accuracy_thresholds": {
+            "translation_m": 0.05,
+            "rotation_deg": 10.0,
+            "successful_pairs": 182,
+            "success_rate_percent": 17.5
+          },
+          "mean_signed_delta_xyz_m": [
+            0.0014326852550688343,
+            -0.058404651256512986,
+            -0.01120114440125451
+          ],
+          "estimated_xyz_ranges_m": [
+            [
+              -1.050671281687676,
+              1.0374954520105917
+            ],
+            [
+              -1.1404154046336707,
+              1.0614814696767625
+            ],
+            [
+              0.06115256324769236,
+              0.27625942936753467
+            ]
+          ],
+          "matched_ground_truth_xyz_ranges_m": [
+            [
+              -0.9800971441517983,
+              1.000920599677787
+            ],
+            [
+              -1.0928169339162628,
+              1.047042707865959
+            ],
+            [
+              0.13480948735040835,
+              0.19540659122036397
+            ]
+          ]
+        }
+      }
+    },
+    "bot3_marker": {
+      "per_arena": {
+        "arena1_marker": {
+          "frame_id": "arena1_marker",
+          "child_frame_id": "bot3_marker",
+          "estimated_topics": [
+            "/relative_pose/estimated/bot3_marker/bot3_marker"
+          ],
+          "ground_truth_topics": [
+            "/relative_pose/ground_truth/bot3_marker/bot3_marker"
+          ],
+          "estimated_messages": 1730,
+          "ground_truth_messages": 9025,
+          "evaluated_pairs": 1041,
+          "skipped": {
+            "outside_ground_truth_range": 0,
+            "gap_too_large": 689
+          },
+          "estimated_span_seconds": 160.336725164,
+          "effective_estimated_pose_rate_hz": 10.783555659076216,
+          "translation_error_m": {
+            "count": 1041,
+            "mean": 0.08100466468756827,
+            "median": 0.07878975425658817,
+            "p90": 0.1279148572674351,
+            "p95": 0.14484728784870798,
+            "rmse": 0.08859488449177864,
+            "minimum": 0.009925867462532344,
+            "maximum": 0.2095704572878244
+          },
+          "rotation_error_deg": {
+            "count": 1041,
+            "mean": 5.812181955096236,
+            "median": 5.390944909627303,
+            "p90": 8.509869113565475,
+            "p95": 10.504808236313892,
+            "rmse": 6.451128566259594,
+            "minimum": 0.5531939890366774,
+            "maximum": 22.628742333080314
+          },
+          "pose_loss": {
+            "count": 1041,
+            "mean": 0.08607568790009858,
+            "median": 0.08426819629855459,
+            "p90": 0.1327746558870093,
+            "p95": 0.15086548956525497,
+            "rmse": 0.0936632068006449,
+            "minimum": 0.017074021229117442,
+            "maximum": 0.2258086574752069
+          },
+          "squared_translation_error_m2": {
+            "count": 1041,
+            "mean": 0.0078490535581116,
+            "median": 0.006207825375813553,
+            "p90": 0.01636221070974829,
+            "p95": 0.020980736797126465,
+            "rmse": 0.01034014202207702,
+            "minimum": 9.852284488375825e-05,
+            "maximum": 0.04391977656782783
+          },
+          "squared_quaternion_error": {
+            "count": 1041,
+            "mean": 0.0031670786983540892,
+            "median": 0.002212811556164511,
+            "p90": 0.005512402276203411,
+            "p95": 0.008397825379021298,
+            "rmse": 0.0051795777327790764,
+            "minimum": 2.3304983796820975e-05,
+            "maximum": 0.03886904065827522
+          },
+          "ground_truth_sample_distance_ms": {
+            "count": 1041,
+            "mean": 43.50867744764649,
+            "median": 41.497045,
+            "p90": 84.58634,
+            "p95": 91.295329,
+            "rmse": 50.89944281537995,
+            "minimum": 0.104012,
+            "maximum": 99.969191
+          },
+          "accuracy_thresholds": {
+            "translation_m": 0.05,
+            "rotation_deg": 10.0,
+            "successful_pairs": 229,
+            "success_rate_percent": 21.998078770413063
+          },
+          "mean_signed_delta_xyz_m": [
+            0.004357194627616314,
+            -0.04261488886650731,
+            -0.003931728252911523
+          ],
+          "estimated_xyz_ranges_m": [
+            [
+              -1.1290249618944201,
+              1.1007781896473376
+            ],
+            [
+              -1.1830173808157836,
+              1.0724714567550957
+            ],
+            [
+              0.00998644140729299,
+              0.2559546293381525
+            ]
+          ],
+          "matched_ground_truth_xyz_ranges_m": [
+            [
+              -1.052021229178582,
+              1.0111521646020596
+            ],
+            [
+              -1.0080698332421163,
+              1.0542223757560532
+            ],
+            [
+              0.13610494614776406,
+              0.19483943363479117
+            ]
+          ]
+        }
+      }
+    },
+    "bot4_marker": {
+      "per_arena": {
+        "arena1_marker": {
+          "frame_id": "arena1_marker",
+          "child_frame_id": "bot4_marker",
+          "estimated_topics": [
+            "/relative_pose/estimated/bot4_marker/bot4_marker"
+          ],
+          "ground_truth_topics": [
+            "/relative_pose/ground_truth/bot4_marker/bot4_marker"
+          ],
+          "estimated_messages": 1729,
+          "ground_truth_messages": 9025,
+          "evaluated_pairs": 1041,
+          "skipped": {
+            "outside_ground_truth_range": 0,
+            "gap_too_large": 688
+          },
+          "estimated_span_seconds": 156.134527865,
+          "effective_estimated_pose_rate_hz": 11.06737903286899,
+          "translation_error_m": {
+            "count": 1041,
+            "mean": 0.08584144817092591,
+            "median": 0.0829102260590762,
+            "p90": 0.13097272836115992,
+            "p95": 0.14508542768196403,
+            "rmse": 0.09242106586289814,
+            "minimum": 0.013153049707843848,
+            "maximum": 0.2539140270111861
+          },
+          "rotation_error_deg": {
+            "count": 1041,
+            "mean": 6.70999911526646,
+            "median": 6.268262295922845,
+            "p90": 9.212667433871182,
+            "p95": 10.907030056518105,
+            "rmse": 7.093564940277101,
+            "minimum": 1.7469459082805707,
+            "maximum": 18.27526803990905
+          },
+          "pose_loss": {
+            "count": 1041,
+            "mean": 0.09169583083425698,
+            "median": 0.08811231647300347,
+            "p90": 0.1371769802730437,
+            "p95": 0.1510163319210808,
+            "rmse": 0.09791422470928013,
+            "minimum": 0.022439113851375612,
+            "maximum": 0.2576610723807301
+          },
+          "squared_translation_error_m2": {
+            "count": 1041,
+            "mean": 0.008541653415234156,
+            "median": 0.006874105585167118,
+            "p90": 0.017153855574366186,
+            "p95": 0.021049781325658413,
+            "rmse": 0.010870207737318692,
+            "minimum": 0.00017300271661701113,
+            "maximum": 0.06447233311303735
+          },
+          "squared_quaternion_error": {
+            "count": 1041,
+            "mean": 0.003829897297236138,
+            "median": 0.002991443280202609,
+            "p90": 0.0064599863223043525,
+            "p95": 0.009052736137033916,
+            "rmse": 0.0050018176173010015,
+            "minimum": 0.00023240488286300573,
+            "maximum": 0.025380580806322415
+          },
+          "ground_truth_sample_distance_ms": {
+            "count": 1041,
+            "mean": 43.50867744764649,
+            "median": 41.497045,
+            "p90": 84.58634,
+            "p95": 91.295329,
+            "rmse": 50.89944281537995,
+            "minimum": 0.104012,
+            "maximum": 99.969191
+          },
+          "accuracy_thresholds": {
+            "translation_m": 0.05,
+            "rotation_deg": 10.0,
+            "successful_pairs": 150,
+            "success_rate_percent": 14.409221902017292
+          },
+          "mean_signed_delta_xyz_m": [
+            -0.005984581030783851,
+            -0.0573327225558332,
+            -0.00991728083570579
+          ],
+          "estimated_xyz_ranges_m": [
+            [
+              -1.0549465797140343,
+              1.0375816921057046
+            ],
+            [
+              -1.066933745300005,
+              1.039276848700433
+            ],
+            [
+              0.05410521573713267,
+              0.26071803501496515
+            ]
+          ],
+          "matched_ground_truth_xyz_ranges_m": [
+            [
+              -1.0039380769820778,
+              0.9788301218114259
+            ],
+            [
+              -0.9531011278107744,
+              1.054008495776947
+            ],
+            [
+              0.13718097051394615,
+              0.19621926633407616
+            ]
+          ]
+        }
+      }
+    }
+  },
+  "pose_topic_counts": {
+    "estimated": {
+      "/relative_pose/estimated/bot1_marker/bot1_marker": {
+        "message_type": "geometry_msgs/msg/TransformStamped",
+        "messages": 1729,
+        "invalid_messages": 0,
+        "filtered_messages": 0
+      },
+      "/relative_pose/estimated/bot2_marker/bot2_marker": {
+        "message_type": "geometry_msgs/msg/TransformStamped",
+        "messages": 1728,
+        "invalid_messages": 0,
+        "filtered_messages": 0
+      },
+      "/relative_pose/estimated/bot3_marker/bot3_marker": {
+        "message_type": "geometry_msgs/msg/TransformStamped",
+        "messages": 1730,
+        "invalid_messages": 0,
+        "filtered_messages": 0
+      },
+      "/relative_pose/estimated/bot4_marker/bot4_marker": {
+        "message_type": "geometry_msgs/msg/TransformStamped",
+        "messages": 1729,
+        "invalid_messages": 0,
+        "filtered_messages": 0
+      }
+    },
+    "ground_truth": {
+      "/relative_pose/ground_truth/bot1_marker/bot1_marker": {
+        "message_type": "geometry_msgs/msg/TransformStamped",
+        "messages": 9024,
+        "invalid_messages": 0,
+        "filtered_messages": 0
+      },
+      "/relative_pose/ground_truth/bot2_marker/bot2_marker": {
+        "message_type": "geometry_msgs/msg/TransformStamped",
+        "messages": 9025,
+        "invalid_messages": 0,
+        "filtered_messages": 0
+      },
+      "/relative_pose/ground_truth/bot3_marker/bot3_marker": {
+        "message_type": "geometry_msgs/msg/TransformStamped",
+        "messages": 9025,
+        "invalid_messages": 0,
+        "filtered_messages": 0
+      },
+      "/relative_pose/ground_truth/bot4_marker/bot4_marker": {
+        "message_type": "geometry_msgs/msg/TransformStamped",
+        "messages": 9025,
+        "invalid_messages": 0,
+        "filtered_messages": 0
+      }
+    }
+  },
+  "telemetry_enabled": true,
+  "packet_topic": "/mpose/packets",
+  "packet_topic_found": true,
+  "raw_packet_messages": 2084,
+  "invalid_packet_messages": 0,
+  "tracking_telemetry": {
+    "available": true,
+    "session_count": 1,
+    "submitted_inputs": 2587,
+    "processed_inputs": 2168,
+    "dropped_inputs": 417,
+    "manual_resets": 0,
+    "camera_frames_skipped": 0,
+    "eligible_camera_frames_assuming_visible": 2587,
+    "per_marker": {
+      "arena1_marker": {
+        "successful_pose_frames": 2168,
+        "frames_missed_assuming_visible": 419,
+        "frames_missed_percentage_assuming_visible": 16.19636644762273,
+        "automatic_resets": 0,
+        "manual_global_resets": 0,
+        "total_resets_affecting_marker": 0,
+        "processed_without_pose": 0,
+        "detected_without_pose": 0,
+        "dropped_detected_inputs": 417
+      },
+      "arena2_marker": {
+        "successful_pose_frames": 0,
+        "frames_missed_assuming_visible": 2587,
+        "frames_missed_percentage_assuming_visible": 100.0,
+        "automatic_resets": 0,
+        "manual_global_resets": 0,
+        "total_resets_affecting_marker": 0,
+        "processed_without_pose": 2168,
+        "detected_without_pose": 0,
+        "dropped_detected_inputs": 0
+      },
+      "bot1_marker": {
+        "successful_pose_frames": 2166,
+        "frames_missed_assuming_visible": 421,
+        "frames_missed_percentage_assuming_visible": 16.273676072671048,
+        "automatic_resets": 4,
+        "manual_global_resets": 0,
+        "total_resets_affecting_marker": 4,
+        "processed_without_pose": 2,
+        "detected_without_pose": 0,
+        "dropped_detected_inputs": 338
+      },
+      "bot2_marker": {
+        "successful_pose_frames": 2166,
+        "frames_missed_assuming_visible": 421,
+        "frames_missed_percentage_assuming_visible": 16.273676072671048,
+        "automatic_resets": 2,
+        "manual_global_resets": 0,
+        "total_resets_affecting_marker": 2,
+        "processed_without_pose": 2,
+        "detected_without_pose": 0,
+        "dropped_detected_inputs": 417
+      },
+      "bot3_marker": {
+        "successful_pose_frames": 2168,
+        "frames_missed_assuming_visible": 419,
+        "frames_missed_percentage_assuming_visible": 16.19636644762273,
+        "automatic_resets": 1,
+        "manual_global_resets": 0,
+        "total_resets_affecting_marker": 1,
+        "processed_without_pose": 0,
+        "detected_without_pose": 0,
+        "dropped_detected_inputs": 417
+      },
+      "bot4_marker": {
+        "successful_pose_frames": 2167,
+        "frames_missed_assuming_visible": 420,
+        "frames_missed_percentage_assuming_visible": 16.235021260146887,
+        "automatic_resets": 3,
+        "manual_global_resets": 0,
+        "total_resets_affecting_marker": 3,
+        "processed_without_pose": 1,
+        "detected_without_pose": 0,
+        "dropped_detected_inputs": 379
+      }
+    }
+  },
+  "runtime_timing": {
+    "unique_inference_results": 1736,
+    "inference_ms": {
+      "count": 1736,
+      "mean": 71.09533846130961,
+      "median": 58.77206800141721,
+      "p90": 62.99097699957201,
+      "p95": 65.03042175245355,
+      "rmse": 278.5347532027286,
+      "minimum": 40.95377799967537,
+      "maximum": 10353.64111400122
+    },
+    "image_to_result_ms": {
+      "count": 1736,
+      "mean": 134.82381921774194,
+      "median": 121.853292,
+      "p90": 128.18662999999998,
+      "p95": 131.16774325,
+      "rmse": 300.9793413394089,
+      "minimum": 110.746877,
+      "maximum": 10400.557152
+    },
+    "image_to_send_ms": {
+      "count": 1736,
+      "mean": 150.28334878341013,
+      "median": 137.272284,
+      "p90": 144.3640545,
+      "p95": 145.80869174999998,
+      "rmse": 308.4189336367401,
+      "minimum": 122.491875,
+      "maximum": 10406.741018
+    },
+    "send_to_bag_receipt_ms": {
+      "count": 1736,
+      "mean": 23.62581097753456,
+      "median": 16.4624285,
+      "p90": 43.635966499999995,
+      "p95": 83.31690725,
+      "rmse": 32.96730562082266,
+      "minimum": 4.881676,
+      "maximum": 140.560713
+    },
+    "effective_pose_rate_hz_by_marker": {
+      "arena1_marker": 10.783555659076216,
+      "bot1_marker": 11.06737903286899,
+      "bot2_marker": 10.771081910482721,
+      "bot3_marker": 10.783555659076216,
+      "bot4_marker": 11.06737903286899
+    },
+    "valid_unique_pose_results_by_marker": {
+      "arena1_marker": 1730,
+      "bot1_marker": 1729,
+      "bot2_marker": 1728,
+      "bot3_marker": 1730,
+      "bot4_marker": 1729
+    }
+  },
+  "selected_marker": null,
+  "selected_marker_metrics": null,
+  "caveats": [
+    "Errors are computed from relative poses; precomputed error topics are not used.",
+    "Only identical arena and robot frame IDs are compared.",
+    "Statistics remain separate for each arena/robot; samples are not pooled across arenas.",
+    "Header clocks must be synchronized; bag timestamps are receipt timestamps.",
+    "Nearest matching and interpolation do not extrapolate outside the ground-truth interval.",
+    "Packet telemetry describes producer sessions, not individual arena/robot comparisons.",
+    "Frames missed assumes continuous visibility; cumulative counters may predate bag recording.",
+    "Identical frame names do not prove matching physical origins or axes."
+  ]
+}
