@@ -1,0 +1,365 @@
+{
+  "storage_identifier": "sqlite3",
+  "bag_files": [
+    "rosbags/mpose_run_1793216210/mpose_run_1793216210_0.db3"
+  ],
+  "timestamp_source": "header",
+  "matching_method": "interpolate",
+  "maximum_sample_distance_ms": 100.0,
+  "estimate_time_offset_ms": 0.0,
+  "arena_frame_filter": null,
+  "bot_frame_filter": null,
+  "beta": 0.1,
+  "pose_loss_definition": "||t_est-t_gt|| + beta * min(||q_est-q_gt||, ||q_est+q_gt||)",
+  "successful_arena_bot_groups": 1,
+  "failed_arena_bot_groups": 1,
+  "average_errors_by_bot_and_arena": {
+    "bot1_marker": {
+      "arena1_marker": {
+        "evaluated_pairs": 3496,
+        "translation_error_m": 0.48078027671974094,
+        "rotation_error_deg": 11.51202637855514,
+        "pose_loss": 0.4908203627992471
+      }
+    }
+  },
+  "per_bot": {
+    "bot1_marker": {
+      "per_arena": {
+        "arena1_marker": {
+          "frame_id": "arena1_marker",
+          "child_frame_id": "bot1_marker",
+          "estimated_topics": [
+            "/relative_pose/estimated/bot1_marker/bot1_marker"
+          ],
+          "ground_truth_topics": [
+            "/relative_pose/ground_truth/bot1_marker/bot1_marker"
+          ],
+          "estimated_messages": 3501,
+          "ground_truth_messages": 25903,
+          "evaluated_pairs": 3496,
+          "skipped": {
+            "outside_ground_truth_range": 2,
+            "gap_too_large": 3
+          },
+          "estimated_span_seconds": 255.310322083,
+          "effective_estimated_pose_rate_hz": 13.70880727204664,
+          "translation_error_m": {
+            "count": 3496,
+            "mean": 0.48078027671974094,
+            "median": 0.4549015754646337,
+            "p90": 0.7055852151676832,
+            "p95": 0.7618941851010151,
+            "rmse": 0.5053438570223925,
+            "minimum": 0.2003883825462024,
+            "maximum": 1.0146669721327761
+          },
+          "rotation_error_deg": {
+            "count": 3496,
+            "mean": 11.51202637855514,
+            "median": 10.302103248798874,
+            "p90": 17.488387052255252,
+            "p95": 18.727535962579772,
+            "rmse": 12.26980847210843,
+            "minimum": 2.4347679470113075,
+            "maximum": 29.279407439671125
+          },
+          "pose_loss": {
+            "count": 3496,
+            "mean": 0.4908203627992471,
+            "median": 0.46526283817679465,
+            "p90": 0.713765787146853,
+            "p95": 0.7701501760484755,
+            "rmse": 0.5147816668561417,
+            "minimum": 0.20251307843910832,
+            "maximum": 1.0259565838341194
+          },
+          "squared_translation_error_m2": {
+            "count": 3496,
+            "mean": 0.25537241383026826,
+            "median": 0.20693544421258936,
+            "p90": 0.4978504958949386,
+            "p95": 0.5804827810011094,
+            "rmse": 0.30384973692392586,
+            "minimum": 0.040155503859483146,
+            "maximum": 1.029549064337096
+          },
+          "squared_quaternion_error": {
+            "count": 3496,
+            "mean": 0.01144828305328065,
+            "median": 0.008077073052313657,
+            "p90": 0.023246156258698945,
+            "p95": 0.026649508627342552,
+            "rmse": 0.01410040760360529,
+            "minimum": 0.00045143326373312876,
+            "maximum": 0.06493147198246667
+          },
+          "ground_truth_sample_distance_ms": {
+            "count": 3496,
+            "mean": 7.883203530034326,
+            "median": 7.604141,
+            "p90": 10.2457375,
+            "p95": 11.204638000000001,
+            "rmse": 8.274709409688466,
+            "minimum": 0.252886,
+            "maximum": 42.760564
+          },
+          "accuracy_thresholds": {
+            "translation_m": 0.05,
+            "rotation_deg": 10.0,
+            "successful_pairs": 0,
+            "success_rate_percent": 0.0
+          },
+          "mean_signed_delta_xyz_m": [
+            -0.053828692498990485,
+            -0.1634964517564722,
+            -0.4424310737036339
+          ],
+          "estimated_xyz_ranges_m": [
+            [
+              0.5040557482300946,
+              2.4876148007925973
+            ],
+            [
+              0.4256106157653279,
+              2.6444962206728166
+            ],
+            [
+              -0.6109325918053385,
+              0.10029593683900451
+            ]
+          ],
+          "matched_ground_truth_xyz_ranges_m": [
+            [
+              0.604969514944287,
+              2.473730273575919
+            ],
+            [
+              0.6686144318051912,
+              2.726972716455315
+            ],
+            [
+              0.21475571242091127,
+              0.38626666440304946
+            ]
+          ]
+        }
+      }
+    },
+    "bot2_marker": {
+      "per_arena": {
+        "arena1_marker": {
+          "frame_id": "arena1_marker",
+          "child_frame_id": "bot2_marker",
+          "estimated_topics": [
+            "/relative_pose/estimated/bot2_marker/bot2_marker"
+          ],
+          "ground_truth_topics": [],
+          "error": "No ground_truth samples for this arena/robot"
+        }
+      }
+    }
+  },
+  "pose_topic_counts": {
+    "estimated": {
+      "/relative_pose/estimated/bot1_marker/bot1_marker": {
+        "message_type": "geometry_msgs/msg/TransformStamped",
+        "messages": 3501,
+        "invalid_messages": 0,
+        "filtered_messages": 0
+      },
+      "/relative_pose/estimated/bot2_marker/bot2_marker": {
+        "message_type": "geometry_msgs/msg/TransformStamped",
+        "messages": 3501,
+        "invalid_messages": 0,
+        "filtered_messages": 0
+      },
+      "/relative_pose/estimated/bot3_marker/bot3_marker": {
+        "message_type": "geometry_msgs/msg/TransformStamped",
+        "messages": 0,
+        "invalid_messages": 0,
+        "filtered_messages": 0
+      },
+      "/relative_pose/estimated/bot4_marker/bot4_marker": {
+        "message_type": "geometry_msgs/msg/TransformStamped",
+        "messages": 0,
+        "invalid_messages": 0,
+        "filtered_messages": 0
+      }
+    },
+    "ground_truth": {
+      "/relative_pose/ground_truth/bot1_marker/bot1_marker": {
+        "message_type": "geometry_msgs/msg/TransformStamped",
+        "messages": 25903,
+        "invalid_messages": 0,
+        "filtered_messages": 0
+      },
+      "/relative_pose/ground_truth/bot2_marker/bot2_marker": {
+        "message_type": "geometry_msgs/msg/TransformStamped",
+        "messages": 0,
+        "invalid_messages": 0,
+        "filtered_messages": 0
+      },
+      "/relative_pose/ground_truth/bot3_marker/bot3_marker": {
+        "message_type": "geometry_msgs/msg/TransformStamped",
+        "messages": 0,
+        "invalid_messages": 0,
+        "filtered_messages": 0
+      },
+      "/relative_pose/ground_truth/bot4_marker/bot4_marker": {
+        "message_type": "geometry_msgs/msg/TransformStamped",
+        "messages": 0,
+        "invalid_messages": 0,
+        "filtered_messages": 0
+      }
+    }
+  },
+  "telemetry_enabled": true,
+  "packet_topic": "/mpose/packets",
+  "packet_topic_found": true,
+  "raw_packet_messages": 3502,
+  "invalid_packet_messages": 0,
+  "tracking_telemetry": {
+    "available": true,
+    "session_count": 1,
+    "submitted_inputs": 7485,
+    "processed_inputs": 7252,
+    "dropped_inputs": 233,
+    "manual_resets": 1,
+    "camera_frames_skipped": 0,
+    "eligible_camera_frames_assuming_visible": 7485,
+    "per_marker": {
+      "arena1_marker": {
+        "successful_pose_frames": 7252,
+        "frames_missed_assuming_visible": 233,
+        "frames_missed_percentage_assuming_visible": 3.1128924515698064,
+        "automatic_resets": 1,
+        "manual_global_resets": 1,
+        "total_resets_affecting_marker": 2,
+        "processed_without_pose": 0,
+        "detected_without_pose": 0,
+        "dropped_detected_inputs": 233
+      },
+      "arena2_marker": {
+        "successful_pose_frames": 0,
+        "frames_missed_assuming_visible": 7485,
+        "frames_missed_percentage_assuming_visible": 100.0,
+        "automatic_resets": 0,
+        "manual_global_resets": 1,
+        "total_resets_affecting_marker": 1,
+        "processed_without_pose": 7252,
+        "detected_without_pose": 0,
+        "dropped_detected_inputs": 0
+      },
+      "bot1_marker": {
+        "successful_pose_frames": 7252,
+        "frames_missed_assuming_visible": 233,
+        "frames_missed_percentage_assuming_visible": 3.1128924515698064,
+        "automatic_resets": 0,
+        "manual_global_resets": 1,
+        "total_resets_affecting_marker": 1,
+        "processed_without_pose": 0,
+        "detected_without_pose": 0,
+        "dropped_detected_inputs": 233
+      },
+      "bot2_marker": {
+        "successful_pose_frames": 7252,
+        "frames_missed_assuming_visible": 233,
+        "frames_missed_percentage_assuming_visible": 3.1128924515698064,
+        "automatic_resets": 0,
+        "manual_global_resets": 1,
+        "total_resets_affecting_marker": 1,
+        "processed_without_pose": 0,
+        "detected_without_pose": 0,
+        "dropped_detected_inputs": 233
+      },
+      "bot3_marker": {
+        "successful_pose_frames": 0,
+        "frames_missed_assuming_visible": 7485,
+        "frames_missed_percentage_assuming_visible": 100.0,
+        "automatic_resets": 0,
+        "manual_global_resets": 1,
+        "total_resets_affecting_marker": 1,
+        "processed_without_pose": 7252,
+        "detected_without_pose": 0,
+        "dropped_detected_inputs": 0
+      },
+      "bot4_marker": {
+        "successful_pose_frames": 0,
+        "frames_missed_assuming_visible": 7485,
+        "frames_missed_percentage_assuming_visible": 100.0,
+        "automatic_resets": 0,
+        "manual_global_resets": 1,
+        "total_resets_affecting_marker": 1,
+        "processed_without_pose": 7252,
+        "detected_without_pose": 0,
+        "dropped_detected_inputs": 0
+      }
+    }
+  },
+  "runtime_timing": {
+    "unique_inference_results": 3501,
+    "inference_ms": {
+      "count": 3501,
+      "mean": 52.60161324678416,
+      "median": 52.56133399961982,
+      "p90": 55.79912899884221,
+      "p95": 56.81374999949185,
+      "rmse": 52.657965324540456,
+      "minimum": 44.26985000100103,
+      "maximum": 61.46206599987636
+    },
+    "image_to_result_ms": {
+      "count": 3501,
+      "mean": 93.01609032704941,
+      "median": 93.023517,
+      "p90": 96.860133,
+      "p95": 98.060706,
+      "rmse": 93.06648026528191,
+      "minimum": 83.214316,
+      "maximum": 104.71535
+    },
+    "image_to_send_ms": {
+      "count": 3501,
+      "mean": 124.60301291688089,
+      "median": 124.568091,
+      "p90": 139.876768,
+      "p95": 142.702522,
+      "rmse": 125.09424004515003,
+      "minimum": 102.808609,
+      "maximum": 147.720552
+    },
+    "send_to_bag_receipt_ms": {
+      "count": 3501,
+      "mean": 8.597653385889746,
+      "median": 8.475298,
+      "p90": 12.733195,
+      "p95": 14.621511,
+      "rmse": 9.445695516065005,
+      "minimum": 1.514614,
+      "maximum": 64.716557
+    },
+    "effective_pose_rate_hz_by_marker": {
+      "arena1_marker": 13.70880727204664,
+      "bot1_marker": 13.70880727204664,
+      "bot2_marker": 13.70880727204664
+    },
+    "valid_unique_pose_results_by_marker": {
+      "arena1_marker": 3501,
+      "bot1_marker": 3501,
+      "bot2_marker": 3501
+    }
+  },
+  "selected_marker": null,
+  "selected_marker_metrics": null,
+  "caveats": [
+    "Errors are computed from relative poses; precomputed error topics are not used.",
+    "Only identical arena and robot frame IDs are compared.",
+    "Statistics remain separate for each arena/robot; samples are not pooled across arenas.",
+    "Header clocks must be synchronized; bag timestamps are receipt timestamps.",
+    "Nearest matching and interpolation do not extrapolate outside the ground-truth interval.",
+    "Packet telemetry describes producer sessions, not individual arena/robot comparisons.",
+    "Frames missed assumes continuous visibility; cumulative counters may predate bag recording.",
+    "Identical frame names do not prove matching physical origins or axes."
+  ]
+}
